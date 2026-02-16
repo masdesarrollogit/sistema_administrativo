@@ -1,0 +1,42 @@
+# OS & Logs
+*.log
+.DS_Store
+*.Zone.Identifier
+Thumbs.db
+
+# Security & Credentials
+.env
+.env.backup
+.env.production
+CREDENCIALES.md
+auth.json
+/storage/*.key
+
+# Core Folders
+/node_modules
+/vendor
+/public/build
+/public/hot
+/public/storage
+/public/vendor
+/storage/pail
+
+# IDE & Editors
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+.phpactor.json
+.phpunit.result.cache
+/.phpunit.cache
+
+# Legacy & Backups (Local only)
+/legacy/
+*.sql
+*.tar.gz
+*.zip
+
+# Local Configs
+Homestead.json
+Homestead.yaml
