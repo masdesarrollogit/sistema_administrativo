@@ -41,20 +41,33 @@ class CsvImportService
             // Procesar cada línea
             while (($data = fgetcsv($handle, 0, ';')) !== false) {
                 if (count($data) >= 22) {
+                    $cif = $this->limpiarDato($data[1] ?? '');
+                    $razon = $this->limpiarDato($data[2] ?? '');
+
+                    // Omitir filas efectivamente vacías (sin CIF y sin Razón Social)
+                    if (empty($cif) && empty($razon)) {
+                        $this->omitidos++;
+                        continue;
+                    }
+
                     try {
                         $this->procesarEmpresa($data, $modelo);
                         $this->procesados++;
                         
                         if ($this->procesados <= 3) {
-                            $this->log('success', "Empresa {$this->procesados}: " . $this->limpiarDato($data[1]) . ' - ' . $this->limpiarDato($data[2]));
+                            $this->log('success', "Empresa {$this->procesados}: $cif - $razon");
                         }
                     } catch (\Exception $e) {
                         $this->errores++;
                         $this->log('error', "Error en empresa: " . $e->getMessage());
                     }
                 } else {
+                    // Verificar si al menos tiene algo de contenido antes de loguear warning
+                    $contenido = implode('', $data);
+                    if (!empty(trim($contenido))) {
+                        $this->log('warning', 'Fila con columnas insuficientes (' . count($data) . '): ' . substr($contenido, 0, 50) . '...');
+                    }
                     $this->omitidos++;
-                    $this->log('warning', 'Empresa con columnas insuficientes: ' . count($data));
                 }
             }
 

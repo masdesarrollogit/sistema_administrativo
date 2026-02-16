@@ -111,7 +111,7 @@
                             
                             <div class="p-4 bg-blue-50 rounded-xl border border-blue-100 mb-6">
                                 <p class="text-[11px] text-blue-700 font-bold italic">
-                                    ℹ️ Se enviará el saldo actual a administración (@webcurso.es)
+                                    ℹ️ Se enviará el saldo actual a administración ({{ config('candidatos.recordatorios.copia_email') }})
                                 </p>
                             </div>
 
