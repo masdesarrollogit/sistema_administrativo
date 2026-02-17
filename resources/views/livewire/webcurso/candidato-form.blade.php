@@ -55,6 +55,34 @@
                                 <h3 class="font-semibold text-gray-800 mb-4">Datos de la Empresa</h3>
                                 
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div class="relative">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Razón Social <span class="text-red-500">*</span>
+                                        </label>
+                                        <input type="text" 
+                                               wire:model.live.debounce.300ms="razon_social_empresa" 
+                                               class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                               placeholder="Nombre de la empresa"
+                                               autocomplete="off"
+                                               required>
+                                        
+                                        {{-- Dropdown Autocomplete Empresa --}}
+                                        @if($showEmpresaDropdown && count($empresaResults) > 0)
+                                            <div class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                                                @foreach($empresaResults as $empresa)
+                                                    <button type="button" 
+                                                            wire:key="empresa-{{ $empresa->id }}"
+                                                            wire:click="seleccionarEmpresa({{ $empresa->id }})"
+                                                            class="w-full text-left px-4 py-2 hover:bg-indigo-50 transition-colors border-b border-gray-50 last:border-0">
+                                                        <div class="font-medium text-gray-900 text-sm">{{ $empresa->razon_social }}</div>
+                                                        <div class="text-xs text-gray-500">{{ $empresa->cif }}</div>
+                                                    </button>
+                                                @endforeach
+                                            </div>
+                                        @endif
+                                        @error('razon_social_empresa') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
+                                    </div>
+
                                     <div>
                                         <label class="block text-sm font-medium text-gray-700 mb-2">
                                             CIF <span class="text-red-500">*</span>
@@ -72,18 +100,6 @@
                                             </button>
                                         </div>
                                         @error('cif_empresa') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
-                                    </div>
-
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                                            Razón Social <span class="text-red-500">*</span>
-                                        </label>
-                                        <input type="text" 
-                                               wire:model="razon_social_empresa" 
-                                               class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                                               placeholder="Nombre de la empresa"
-                                               required>
-                                        @error('razon_social_empresa') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
                                     </div>
                                 </div>
                             </div>

@@ -31,6 +31,8 @@ class CandidatoForm extends Component
     public $cif_empresa;
     public $razon_social_empresa;
     public $buscar_empresa = true;
+    public $empresaResults = [];
+    public $showEmpresaDropdown = false;
 
     public function updatedCursoNombre($value)
     {
@@ -51,6 +53,45 @@ class CandidatoForm extends Component
             $this->curso_nombre = $curso->titulo;
             $this->curso_referencia = (string) $curso->horas;
             $this->showDropdown = false;
+        }
+    }
+
+    public function updatedRazonSocialEmpresa($value)
+    {
+        if (strlen($value) > 2) {
+            $tipoCandidato = TipoCandidato::find($this->tipo_candidato_id);
+            if (!$tipoCandidato) return;
+
+            if ($tipoCandidato->codigo === 'empresa_organizadora') {
+                $this->empresaResults = Empresa::where('razon_social', 'like', '%' . $value . '%')
+                    ->take(10)
+                    ->get();
+            } elseif ($tipoCandidato->codigo === 'empresa_externa') {
+                $this->empresaResults = EmpresaExterna::where('razon_social', 'like', '%' . $value . '%')
+                    ->take(10)
+                    ->get();
+            }
+            $this->showEmpresaDropdown = true;
+        } else {
+            $this->showEmpresaDropdown = false;
+        }
+    }
+
+    public function seleccionarEmpresa($id)
+    {
+        $tipoCandidato = TipoCandidato::find($this->tipo_candidato_id);
+        if (!$tipoCandidato) return;
+
+        if ($tipoCandidato->codigo === 'empresa_organizadora') {
+            $empresa = Empresa::find($id);
+        } else {
+            $empresa = EmpresaExterna::find($id);
+        }
+
+        if ($empresa) {
+            $this->razon_social_empresa = $empresa->razon_social;
+            $this->cif_empresa = $empresa->cif;
+            $this->showEmpresaDropdown = false;
         }
     }
 
