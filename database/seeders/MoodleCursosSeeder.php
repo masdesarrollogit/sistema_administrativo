@@ -39,6 +39,12 @@ class MoodleCursosSeeder extends Seeder
         $countCategorias = 0;
         $countCursos = 0;
 
+        // Limpiar tablas para evitar duplicados si se vuelve a correr
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+        MoodleCurso::query()->delete();
+        MoodleCategoria::query()->delete();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+
         DB::beginTransaction();
 
         try {
@@ -90,6 +96,14 @@ class MoodleCursosSeeder extends Seeder
             fclose($file);
             Log::error("Error en MoodleCursosSeeder: " . $e->getMessage());
             $this->command->error("Error durante la importación: " . $e->getMessage());
+
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+            
+            if (is_resource($file)) {
+                fclose($file);
+            }   
         }
     }
 }
