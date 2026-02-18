@@ -38,7 +38,6 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
         // Empresas sin grupos
         Route::get('/empresas-sin-grupos', EmpresasSinGrupos::class)->name('empresas-sin-grupos');
         
-        
         // Importar CSV
         Route::get('/importar', ImportarCsv::class)->name('importar');
         
