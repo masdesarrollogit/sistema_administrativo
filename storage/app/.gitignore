@@ -1,5 +1,5 @@
-*
-!private/
-!public/
-!requisitos/
-!.gitignore
+/*
+!/.gitignore
+!/private/
+!/public/
+!/requisitos/
