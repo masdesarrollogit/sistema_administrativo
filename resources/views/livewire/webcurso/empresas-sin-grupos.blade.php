@@ -42,6 +42,47 @@
             </div>
         </div>
 
+        {{-- KPI Widget Centrado y en una sola fila --}}
+        <div class="bg-white rounded-xl shadow-sm p-4 mb-10 border border-amber-100/50">
+            <div class="flex flex-col md:flex-row items-center justify-center gap-x-12 gap-y-6">
+                
+                {{-- Sección Porcentaje --}}
+                <div class="flex items-center gap-3">
+                    <span class="text-4xl font-black text-amber-600 tracking-tighter">
+                        {{ number_format($stats->porcentaje ?? 0, 1, ',', '.') }}%
+                    </span>
+                    <div class="flex flex-col leading-none">
+                        <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Índice de</span>
+                        <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">Pendientes por</span>
+                        <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">concretar</span>
+                    </div>
+                </div>
+
+                {{-- Barra de Progreso Integrada --}}
+                <div class="w-full max-w-[250px] bg-gray-100 rounded-full h-3 p-0.5 border border-gray-200/50 shadow-inner">
+                    <div class="bg-gradient-to-r from-amber-500 to-amber-600 h-full rounded-full transition-all duration-1000 ease-out" 
+                         style="width: {{ $stats->porcentaje ?? 0 }}%">
+                    </div>
+                </div>
+
+                {{-- Métricas de Conteo --}}
+                <div class="flex items-center gap-4 whitespace-nowrap">
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl font-black text-gray-900 leading-none">{{ number_format($stats->total ?? 0) }}</span>
+                        <span class="text-[10px] font-black text-amber-500 uppercase tracking-widest">Pendientes</span>
+                    </div>
+                    
+                    <span class="text-gray-200 font-light text-2xl">|</span>
+                    
+                    <div class="flex items-center gap-2">
+                        <span class="text-2xl font-black text-blue-600 leading-none">{{ number_format($stats->total_universo ?? 0) }}</span>
+                        <span class="text-[10px] font-black text-blue-500 uppercase tracking-widest">Consultas Totales</span>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
         {{-- Estadísticas --}}
         <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
             <div class="bg-gradient-to-br from-amber-500 to-amber-700 rounded-xl p-4 text-white">
@@ -137,6 +178,7 @@
                     <option value="25">25</option>
                     <option value="50">50</option>
                     <option value="100">100</option>
+                    <option value="0">Todo</option>
                 </select>
                 <span class="text-sm text-gray-600">
                     Mostrando {{ $empresas->firstItem() ?? 0 }} - {{ $empresas->lastItem() ?? 0 }} de {{ $empresas->total() }}

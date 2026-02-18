@@ -105,6 +105,10 @@ class EmpresasSinGrupos extends Component
             $query->where('poblacion', 'like', "%{$this->filtroPoblacion}%");
         }
 
+        if ($this->perPage == 0) {
+            return $query->orderBy('id', 'asc')->paginate($query->count());
+        }
+
         return $query->orderBy('id', 'asc')->paginate($this->perPage);
     }
 
@@ -118,7 +122,14 @@ class EmpresasSinGrupos extends Component
             ? 'grupos_anterior' 
             : 'grupos';
 
-        return $modeloEmpresa::query()
+        $totalUniverso = $modeloEmpresa::query()
+            ->whereNotNull('cif')
+            ->where('cif', '!=', '')
+            ->whereNotNull('razon_social')
+            ->where('razon_social', '!=', '')
+            ->count();
+
+        $stats = $modeloEmpresa::query()
             ->selectRaw('
                 COUNT(*) as total,
                 SUM(CASE WHEN pyme = "SI" THEN 1 ELSE 0 END) as pymes,
@@ -138,6 +149,11 @@ class EmpresasSinGrupos extends Component
                     ->where('cif', '!=', '');
             })
             ->first();
+
+        $stats->total_universo = $totalUniverso;
+        $stats->porcentaje = $totalUniverso > 0 ? ($stats->total / $totalUniverso) * 100 : 0;
+
+        return $stats;
     }
 
     public function render()
