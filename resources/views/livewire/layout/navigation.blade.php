@@ -108,7 +108,10 @@ new class extends Component
                     📋 Candidatos
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('webcurso.importar')" :active="request()->routeIs('webcurso.importar')" wire:navigate>
-                    📥 Importar CSV
+                    📥 Importar Archivos
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('webcurso.participantes-bonificados')" :active="request()->routeIs('webcurso.participantes-bonificados')" wire:navigate>
+                    💰 Participantes Bonificados
                 </x-responsive-nav-link>
             </div>
             @endhasanyrole

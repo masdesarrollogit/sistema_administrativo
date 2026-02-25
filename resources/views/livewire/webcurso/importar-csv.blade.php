@@ -3,33 +3,37 @@
         {{-- Encabezado --}}
         <div class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
-                📤 Importar Archivos CSV
+                📤 Importar Archivos
             </h1>
-            <p class="mt-2 text-gray-600">Sube los archivos CSV de empresas y grupos para actualizar la base de datos</p>
+            <p class="mt-2 text-gray-600">Sube los archivos de empresas, grupos y participantes para actualizar la base de datos</p>
         </div>
 
         {{-- Navegación --}}
-        <div class="mb-6 flex gap-4">
-            <a href="{{ route('webcurso.dashboard') }}" 
+        <div class="mb-6 flex flex-wrap gap-4">
+            <a href="{{ route('webcurso.dashboard') }}"
                class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
                 🏠 Volver al Panel
+            </a>
+            <a href="{{ route('webcurso.participantes-bonificados') }}"
+               class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+                💰 Ver Participantes Bonificados
             </a>
         </div>
 
         {{-- Formulario --}}
         <div class="bg-white rounded-xl shadow-sm p-6">
             <form wire:submit="procesar">
-                {{-- Selector de año --}}
+                {{-- Selector de año (solo aplica a empresas y grupos) --}}
                 <div class="mb-6 p-4 bg-gray-50 rounded-lg">
                     <label class="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" wire:model="esAnterior" 
+                        <input type="checkbox" wire:model="esAnterior"
                                class="w-5 h-5 text-blue-600 rounded focus:ring-blue-500">
                         <span class="font-medium text-gray-700">
-                            Importar para el <strong>año anterior</strong> ({{ date('Y') - 1 }})
+                            Importar empresas/grupos para el <strong>año anterior</strong> ({{ date('Y') - 1 }})
                         </span>
                     </label>
                     <p class="mt-2 text-sm text-gray-500 ml-8">
-                        Si no marcas esta opción, los datos se importarán para el año actual ({{ date('Y') }})
+                        Si no marcas esta opción, los datos se importarán para el año actual ({{ date('Y') }}). No aplica a participantes.
                     </p>
                 </div>
 
@@ -45,10 +49,10 @@
                         <span class="text-4xl">🏢</span>
                         <h3 class="mt-2 text-lg font-semibold text-gray-900">Archivo de Empresas</h3>
                         <p class="text-sm text-gray-500 mb-4">Formato CSV con separador punto y coma (;)</p>
-                        
+
                         <input type="file" wire:model="archivoEmpresas" accept=".csv,.txt"
                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
-                        
+
                         @error('archivoEmpresas')
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                         @enderror
@@ -67,10 +71,10 @@
                         <span class="text-4xl">👥</span>
                         <h3 class="mt-2 text-lg font-semibold text-gray-900">Archivo de Grupos</h3>
                         <p class="text-sm text-gray-500 mb-4">Formato CSV con separador punto y coma (;)</p>
-                        
+
                         <input type="file" wire:model="archivoGrupos" accept=".csv,.txt"
                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
-                        
+
                         @error('archivoGrupos')
                             <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
                         @enderror
@@ -78,6 +82,29 @@
                         @if($archivoGrupos)
                             <p class="mt-2 text-sm text-green-600">
                                 ✅ {{ $archivoGrupos->getClientOriginalName() }}
+                            </p>
+                        @endif
+                    </div>
+                </div>
+
+                {{-- Archivo de Participantes FUNDAE (XLS) --}}
+                <div class="mb-6 p-6 border-2 border-dashed border-green-300 rounded-xl hover:border-green-500 transition-colors bg-green-50/30">
+                    <div class="text-center">
+                        <span class="text-4xl">💰</span>
+                        <h3 class="mt-2 text-lg font-semibold text-gray-900">Participantes Bonificados <span class="text-xs font-normal text-green-600 bg-green-100 px-2 py-0.5 rounded-full ml-1">FUNDAE</span></h3>
+                        <p class="text-sm text-gray-500 mb-1">Archivo Excel (.xls / .xlsx) exportado de FUNDAE</p>
+                        <p class="text-xs text-gray-400 mb-4">Columnas esperadas: NIF Participante, NISS, Nombre, Estado, NIF Centro Formativo, ID Código Grupo, Código PIF, Fecha Inicio, Fecha Fin, Estado Grupo</p>
+
+                        <input type="file" wire:model="archivoParticipantes" accept=".xls,.xlsx"
+                               class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100 cursor-pointer">
+
+                        @error('archivoParticipantes')
+                            <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+
+                        @if($archivoParticipantes)
+                            <p class="mt-2 text-sm text-green-600">
+                                ✅ {{ $archivoParticipantes->getClientOriginalName() }}
                             </p>
                         @endif
                     </div>
@@ -91,13 +118,14 @@
                     <ul class="mt-2 text-sm text-amber-700 list-disc list-inside space-y-1">
                         <li><strong>Empresas:</strong> Se actualizarán por CIF (UPSERT). Los registros existentes se modificarán.</li>
                         <li><strong>Grupos:</strong> Se <strong class="text-red-600">eliminarán todos</strong> los grupos existentes y se cargarán los nuevos.</li>
-                        <li>Asegúrate de que los archivos usen <strong>punto y coma (;)</strong> como separador.</li>
+                        <li><strong>Participantes:</strong> Se <strong class="text-red-600">eliminarán todos</strong> los registros anteriores y se cargarán los nuevos.</li>
+                        <li>Los archivos CSV deben usar <strong>punto y coma (;)</strong> como separador.</li>
                     </ul>
                 </div>
 
                 {{-- Botones --}}
                 <div class="flex gap-4">
-                    <button type="submit" 
+                    <button type="submit"
                             wire:loading.attr="disabled"
                             wire:loading.class="opacity-50 cursor-not-allowed"
                             class="flex-1 py-3 px-6 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2"
@@ -124,7 +152,7 @@
         @if($resultado)
             <div class="mt-6 bg-white rounded-xl shadow-sm p-6">
                 <h3 class="text-xl font-bold text-gray-900 mb-4">📊 Resultado de la Importación</h3>
-                
+
                 <div class="grid grid-cols-2 gap-4 mb-6">
                     <div class="p-4 bg-green-50 rounded-lg text-center">
                         <p class="text-3xl font-bold text-green-600">{{ $resultado['procesados'] }}</p>
@@ -136,14 +164,18 @@
                     </div>
                 </div>
 
-                <div class="flex gap-4">
-                    <a href="{{ route('webcurso.empresas') }}" 
+                <div class="flex flex-wrap gap-4">
+                    <a href="{{ route('webcurso.empresas') }}"
                        class="flex-1 py-2 px-4 bg-blue-600 text-white text-center rounded-lg hover:bg-blue-700">
                         🏢 Ver Empresas
                     </a>
-                    <a href="{{ route('webcurso.grupos') }}" 
+                    <a href="{{ route('webcurso.grupos') }}"
                        class="flex-1 py-2 px-4 bg-purple-600 text-white text-center rounded-lg hover:bg-purple-700">
                         👥 Ver Grupos
+                    </a>
+                    <a href="{{ route('webcurso.participantes-bonificados') }}"
+                       class="flex-1 py-2 px-4 bg-green-600 text-white text-center rounded-lg hover:bg-green-700">
+                        💰 Ver Participantes Bonificados
                     </a>
                 </div>
             </div>
@@ -153,7 +185,7 @@
         @if(count($logs) > 0)
             <div class="mt-6 bg-white rounded-xl shadow-sm p-6">
                 <h3 class="text-xl font-bold text-gray-900 mb-4">📝 Log de Procesamiento</h3>
-                
+
                 <div class="max-h-96 overflow-y-auto space-y-2">
                     @foreach($logs as $log)
                         <div class="p-3 rounded-lg text-sm

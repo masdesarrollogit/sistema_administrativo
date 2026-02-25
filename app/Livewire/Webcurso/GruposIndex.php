@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Webcurso;
 
+use App\Models\Empresa;
+use App\Models\EmpresaAnterior;
 use App\Models\Grupo;
 use App\Models\GrupoAnterior;
 use Livewire\Component;
@@ -14,7 +16,7 @@ class GruposIndex extends Component
     public int $anioActual;
     public int $anioAnterior;
     public int $anioSeleccionado;
-    
+
     // Filtros
     public string $filtroCif = '';
     public string $filtroDenominacion = '';
@@ -22,33 +24,37 @@ class GruposIndex extends Component
     public string $filtroModalidad = '';
     public string $filtroCodigo = '';
     public string $filtroAccionFormativa = '';
-    
+
     // Paginación
     public int $perPage = 25;
 
+    // Modal empresa por CIF
+    public bool $mostrarModal    = false;
+    public ?array $empresaModal  = null;
+
     protected $queryString = [
-        'filtroCif' => ['except' => ''],
-        'filtroDenominacion' => ['except' => ''],
-        'filtroEstado' => ['except' => ''],
-        'filtroModalidad' => ['except' => ''],
-        'filtroCodigo' => ['except' => ''],
-        'filtroAccionFormativa' => ['except' => ''],
-        'perPage' => ['except' => 25],
-        'anioSeleccionado' => ['as' => 'anio'],
+        'filtroCif'              => ['except' => ''],
+        'filtroDenominacion'     => ['except' => ''],
+        'filtroEstado'           => ['except' => ''],
+        'filtroModalidad'        => ['except' => ''],
+        'filtroCodigo'           => ['except' => ''],
+        'filtroAccionFormativa'  => ['except' => ''],
+        'perPage'                => ['except' => 25],
+        'anioSeleccionado'       => ['as' => 'anio'],
     ];
 
     public function mount(): void
     {
-        $this->anioActual = (int) date('Y');
-        $this->anioAnterior = $this->anioActual - 1;
+        $this->anioActual      = (int) date('Y');
+        $this->anioAnterior    = $this->anioActual - 1;
         $this->anioSeleccionado = request('anio', $this->anioActual);
     }
 
-    public function updatingFiltroCif(): void { $this->resetPage(); }
-    public function updatingFiltroDenominacion(): void { $this->resetPage(); }
-    public function updatingFiltroEstado(): void { $this->resetPage(); }
-    public function updatingFiltroModalidad(): void { $this->resetPage(); }
-    public function updatingFiltroCodigo(): void { $this->resetPage(); }
+    public function updatingFiltroCif(): void            { $this->resetPage(); }
+    public function updatingFiltroDenominacion(): void   { $this->resetPage(); }
+    public function updatingFiltroEstado(): void         { $this->resetPage(); }
+    public function updatingFiltroModalidad(): void      { $this->resetPage(); }
+    public function updatingFiltroCodigo(): void         { $this->resetPage(); }
     public function updatingFiltroAccionFormativa(): void { $this->resetPage(); }
 
     public function cambiarAnio(int $anio): void
@@ -60,25 +66,65 @@ class GruposIndex extends Component
     public function limpiarFiltros(): void
     {
         $this->reset([
-            'filtroCif', 
-            'filtroDenominacion', 
-            'filtroEstado', 
+            'filtroCif',
+            'filtroDenominacion',
+            'filtroEstado',
             'filtroModalidad',
             'filtroCodigo',
-            'filtroAccionFormativa'
+            'filtroAccionFormativa',
         ]);
         $this->resetPage();
     }
 
+    // ─── Modal empresa por CIF ────────────────────────────────────────────────
+
+    public function abrirModalEmpresa(string $cif): void
+    {
+        if (empty(trim($cif))) {
+            return;
+        }
+
+        $modelo  = $this->anioSeleccionado === $this->anioAnterior
+            ? EmpresaAnterior::class
+            : Empresa::class;
+
+        $empresa = $modelo::where('cif', $cif)->first();
+
+        if ($empresa) {
+            $this->empresaModal = [
+                'cif'                => $empresa->cif,
+                'razon_social'       => $empresa->razon_social,
+                'saldo_formateado'   => $empresa->saldo_formateado,
+                'credito_disponible' => $empresa->credito_disponible,
+            ];
+        } else {
+            $this->empresaModal = [
+                'cif'                => $cif,
+                'razon_social'       => 'Empresa no encontrada en el sistema',
+                'saldo_formateado'   => 'N/D',
+                'credito_disponible' => null,
+            ];
+        }
+
+        $this->mostrarModal = true;
+    }
+
+    public function cerrarModalEmpresa(): void
+    {
+        $this->mostrarModal = false;
+        $this->empresaModal = null;
+    }
+
+    // ─── Query ────────────────────────────────────────────────────────────────
+
     protected function getGrupos()
     {
-        $modelo = $this->anioSeleccionado === $this->anioAnterior 
-            ? GrupoAnterior::class 
+        $modelo = $this->anioSeleccionado === $this->anioAnterior
+            ? GrupoAnterior::class
             : Grupo::class;
 
         $query = $modelo::query();
 
-        // Aplicar filtros
         if ($this->filtroCif) {
             $query->where('cif', 'like', "%{$this->filtroCif}%");
         }
@@ -103,15 +149,15 @@ class GruposIndex extends Component
 
     protected function getEstadisticas()
     {
-        $modelo = $this->anioSeleccionado === $this->anioAnterior 
-            ? GrupoAnterior::class 
+        $modelo = $this->anioSeleccionado === $this->anioAnterior
+            ? GrupoAnterior::class
             : Grupo::class;
 
-        $total = $modelo::count();
+        $total  = $modelo::count();
         $conCif = $modelo::conCif()->count();
 
         return [
-            'total' => $total,
+            'total'   => $total,
             'con_cif' => $conCif,
             'sin_cif' => $total - $conCif,
         ];
@@ -121,7 +167,7 @@ class GruposIndex extends Component
     {
         return view('livewire.webcurso.grupos-index', [
             'grupos' => $this->getGrupos(),
-            'stats' => $this->getEstadisticas(),
+            'stats'  => $this->getEstadisticas(),
         ])->layout('layouts.app', ['title' => 'Grupos - WebCurso']);
     }
 }

@@ -12,14 +12,16 @@ class ImportarCsv extends Component
 
     public $archivoEmpresas;
     public $archivoGrupos;
+    public $archivoParticipantes;
     public bool $esAnterior = false;
     public array $logs = [];
     public bool $procesando = false;
     public ?array $resultado = null;
 
     protected $rules = [
-        'archivoEmpresas' => 'nullable|file|mimes:csv,txt|max:10240',
-        'archivoGrupos' => 'nullable|file|mimes:csv,txt|max:10240',
+        'archivoEmpresas'      => 'nullable|file|mimes:csv,txt|max:10240',
+        'archivoGrupos'        => 'nullable|file|mimes:csv,txt|max:10240',
+        'archivoParticipantes' => 'nullable|file|mimes:xls,xlsx|max:20480',
     ];
 
     public function updatedArchivoEmpresas(): void
@@ -32,12 +34,17 @@ class ImportarCsv extends Component
         $this->validateOnly('archivoGrupos');
     }
 
+    public function updatedArchivoParticipantes(): void
+    {
+        $this->validateOnly('archivoParticipantes');
+    }
+
     public function procesar(): void
     {
         $this->validate();
 
-        if (!$this->archivoEmpresas && !$this->archivoGrupos) {
-            $this->addError('general', 'Debes subir al menos un archivo CSV');
+        if (!$this->archivoEmpresas && !$this->archivoGrupos && !$this->archivoParticipantes) {
+            $this->addError('general', 'Debes subir al menos un archivo');
             return;
         }
 
@@ -71,27 +78,38 @@ class ImportarCsv extends Component
             $totalErrores += $resultadoGrupos['errores'];
         }
 
+        // Procesar participantes bonificados (XLS)
+        if ($this->archivoParticipantes) {
+            $resultadoParticipantes = $service->importarParticipantes(
+                $this->archivoParticipantes
+            );
+            $this->logs = array_merge($this->logs, $resultadoParticipantes['logs']);
+            $totalProcesados += $resultadoParticipantes['procesados'];
+            $totalErrores += $resultadoParticipantes['errores'];
+        }
+
         $this->resultado = [
             'procesados' => $totalProcesados,
-            'errores' => $totalErrores,
+            'errores'    => $totalErrores,
         ];
 
         $this->procesando = false;
         $this->archivoEmpresas = null;
         $this->archivoGrupos = null;
+        $this->archivoParticipantes = null;
 
         $this->dispatch('import-completed');
     }
 
     public function limpiar(): void
     {
-        $this->reset(['archivoEmpresas', 'archivoGrupos', 'logs', 'resultado']);
+        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'logs', 'resultado']);
         $this->resetValidation();
     }
 
     public function render()
     {
         return view('livewire.webcurso.importar-csv')
-            ->layout('layouts.app', ['title' => 'Importar CSV - WebCurso']);
+            ->layout('layouts.app', ['title' => 'Importar Archivos - WebCurso']);
     }
 }

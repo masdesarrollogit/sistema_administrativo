@@ -6,6 +6,7 @@ use App\Livewire\Webcurso\EmpresasIndex;
 use App\Livewire\Webcurso\GruposIndex;
 use App\Livewire\Webcurso\EmpresasSinGrupos;
 use App\Livewire\Webcurso\ImportarCsv;
+use App\Livewire\Webcurso\ParticipantesBonificadosIndex;
 use App\Livewire\Webcurso\CandidatosIndex;
 use App\Livewire\Webcurso\CandidatoForm;
 use App\Livewire\Webcurso\CandidatoEstatus;
@@ -38,8 +39,11 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
         // Empresas sin grupos
         Route::get('/empresas-sin-grupos', EmpresasSinGrupos::class)->name('empresas-sin-grupos');
         
-        // Importar CSV
+        // Importar archivos
         Route::get('/importar', ImportarCsv::class)->name('importar');
+
+        // Participantes Bonificados FUNDAE
+        Route::get('/participantes-bonificados', ParticipantesBonificadosIndex::class)->name('participantes-bonificados');
         
         // Gestión de candidatos
         Route::prefix('candidatos')->name('candidatos.')->group(function () {

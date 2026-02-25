@@ -158,8 +158,17 @@
                                 <td class="px-3 py-2 max-w-xs truncate text-gray-700 text-xs" title="{{ $grupo->denominacion }}">
                                     {{ Str::limit($grupo->denominacion, 50) }}
                                 </td>
-                                <td class="px-3 py-2 whitespace-nowrap font-mono font-bold bg-amber-50 text-gray-900">
-                                    {{ $grupo->cif }}
+                                <td class="px-3 py-2 whitespace-nowrap bg-amber-50">
+                                    @if($grupo->cif)
+                                        <button
+                                            wire:click="abrirModalEmpresa('{{ $grupo->cif }}')"
+                                            class="font-mono font-bold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer transition-colors"
+                                            title="Ver empresa">
+                                            {{ $grupo->cif }}
+                                        </button>
+                                    @else
+                                        <span class="text-gray-400 text-xs">—</span>
+                                    @endif
                                 </td>
                                 <td class="px-3 py-2 whitespace-nowrap text-gray-600">
                                     {{ $grupo->inicio ? $grupo->inicio->format('d/m/Y') : '' }}
@@ -197,4 +206,60 @@
             {{ $grupos->links() }}
         </div>
     </div>
+
+    {{-- ========== MODAL EMPRESA POR CIF ========== --}}
+    @if($mostrarModal)
+        <div class="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-sm z-50 overflow-y-auto"
+             wire:click.self="cerrarModalEmpresa">
+            <div class="flex items-start justify-center min-h-screen p-4 py-10">
+                <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+
+                    {{-- Header --}}
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center sticky top-0 z-10">
+                        <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                            🏢 Detalle de Empresa
+                        </h3>
+                        <button wire:click="cerrarModalEmpresa" class="text-gray-400 hover:text-gray-600 transition-colors">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="p-6">
+                        @if($empresaModal)
+                            <div class="bg-blue-50 rounded-xl p-5 border border-blue-100 shadow-sm">
+                                <p class="text-xs font-bold text-blue-600 uppercase tracking-widest mb-1">Empresa</p>
+                                <p class="font-black text-gray-900 text-xl leading-tight mb-4">
+                                    {{ $empresaModal['razon_social'] }}
+                                </p>
+
+                                <div class="grid grid-cols-1 gap-y-3">
+                                    <div class="flex justify-between items-center py-1.5 border-b border-blue-100/50">
+                                        <span class="text-xs font-bold text-gray-500 uppercase">CIF</span>
+                                        <span class="text-sm font-bold font-mono text-gray-900">{{ $empresaModal['cif'] }}</span>
+                                    </div>
+
+                                    <div class="flex justify-between items-center py-2 mt-1 bg-white/60 px-3 rounded-lg border border-blue-100/30">
+                                        <span class="text-xs font-black text-blue-600 uppercase">Saldo Disponible</span>
+                                        @if($empresaModal['credito_disponible'] !== null)
+                                            <span class="text-xl font-black text-green-600">
+                                                {{ $empresaModal['saldo_formateado'] }}
+                                            </span>
+                                        @else
+                                            <span class="text-sm font-bold text-gray-400 italic">
+                                                Empresa no registrada
+                                            </span>
+                                        @endif
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    @endif
+
 </div>

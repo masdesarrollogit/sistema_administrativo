@@ -6,9 +6,11 @@ use App\Models\Empresa;
 use App\Models\EmpresaAnterior;
 use App\Models\Grupo;
 use App\Models\GrupoAnterior;
+use App\Models\ParticipanteBonificado;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class CsvImportService
 {
@@ -153,6 +155,96 @@ class CsvImportService
         }
 
         return $this->getResultado();
+    }
+
+    /**
+     * Importar archivo XLS de participantes FUNDAE (reemplaza todos los registros)
+     */
+    public function importarParticipantes(UploadedFile $archivo): array
+    {
+        $this->resetContadores();
+
+        $this->log('info', '👤 Iniciando importación de PARTICIPANTES BONIFICADOS...');
+        $this->log('info', 'Archivo: ' . $archivo->getClientOriginalName());
+
+        try {
+            $spreadsheet = IOFactory::load($archivo->getRealPath());
+            $sheet = $spreadsheet->getActiveSheet();
+            $maxRow = $sheet->getHighestRow();
+
+            $this->log('info', 'Filas detectadas: ' . ($maxRow - 1) . ' (excluye cabecera)');
+
+            // Vaciar tabla antes de importar
+            DB::table('participantes_bonificados')->truncate();
+            $this->log('info', '✅ Tabla participantes_bonificados limpiada');
+
+            for ($row = 2; $row <= $maxRow; $row++) {
+                $nif    = trim($sheet->getCell('B' . $row)->getValue() ?? '');
+                $nombre = trim($sheet->getCell('D' . $row)->getValue() ?? '');
+
+                // Omitir filas vacías
+                if (empty($nif) && empty($nombre)) {
+                    $this->omitidos++;
+                    continue;
+                }
+
+                try {
+                    $fechaInicio = $this->convertirFechaExcel($sheet->getCell('I' . $row)->getFormattedValue());
+                    $fechaFin    = $this->convertirFechaExcel($sheet->getCell('J' . $row)->getFormattedValue());
+
+                    ParticipanteBonificado::create([
+                        'nif_participante' => $nif,
+                        'niss'             => trim($sheet->getCell('C' . $row)->getValue() ?? ''),
+                        'nombre'           => $nombre,
+                        'estado'           => trim($sheet->getCell('E' . $row)->getValue() ?? ''),
+                        'cif'              => trim($sheet->getCell('F' . $row)->getValue() ?? ''),
+                        'id_codigo_grupo'  => trim($sheet->getCell('G' . $row)->getValue() ?? ''),
+                        'codigo_pif'       => trim($sheet->getCell('H' . $row)->getValue() ?? ''),
+                        'fecha_inicio'     => $fechaInicio,
+                        'fecha_fin'        => $fechaFin,
+                        'estado_grupo'     => trim($sheet->getCell('K' . $row)->getValue() ?? ''),
+                    ]);
+
+                    $this->procesados++;
+
+                    if ($this->procesados <= 3) {
+                        $this->log('success', "Participante {$this->procesados}: {$nif} - {$nombre}");
+                    }
+                } catch (\Exception $e) {
+                    $this->errores++;
+                    $this->log('error', "Error en fila {$row}: " . $e->getMessage());
+                }
+            }
+
+            $this->log('success', "✅ Participantes importados: {$this->procesados} registros");
+            if ($this->omitidos > 0) {
+                $this->log('info', "ℹ️ Registros omitidos: {$this->omitidos}");
+            }
+
+        } catch (\Exception $e) {
+            $this->log('error', '❌ Error general: ' . $e->getMessage());
+        }
+
+        return $this->getResultado();
+    }
+
+    /**
+     * Convertir fecha con formato d/m/Y desde Excel
+     */
+    protected function convertirFechaExcel(string $fecha): ?string
+    {
+        if (empty(trim($fecha))) {
+            return null;
+        }
+        try {
+            $partes = explode('/', trim($fecha));
+            if (count($partes) === 3) {
+                return $partes[2] . '-' . str_pad($partes[1], 2, '0', STR_PAD_LEFT) . '-' . str_pad($partes[0], 2, '0', STR_PAD_LEFT);
+            }
+            return null;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     /**
