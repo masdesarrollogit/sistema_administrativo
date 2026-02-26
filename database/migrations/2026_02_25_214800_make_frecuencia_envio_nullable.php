@@ -16,12 +16,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Primero, convertir los que tienen el default antiguo (3) a null
-        DB::table('candidatos')
-            ->where('frecuencia_envio', 3)
-            ->update(['frecuencia_envio' => null]);
-
-        // Hacer la columna nullable con default null
+        // 1. Primero hacer la columna nullable
         Schema::table('candidatos', function (Blueprint $table) {
             $table->integer('frecuencia_envio')
                   ->nullable()
@@ -29,6 +24,12 @@ return new class extends Migration
                   ->comment('Días entre envíos. NULL = semanal (lunes)')
                   ->change();
         });
+
+        // 2. Luego convertir los que tienen el default antiguo (3) a null
+        // (Ahora que la columna ya acepta nulos)
+        DB::table('candidatos')
+            ->where('frecuencia_envio', 3)
+            ->update(['frecuencia_envio' => null]);
     }
 
     /**
@@ -36,16 +37,19 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('candidatos', function (Blueprint $table) {
-            $table->integer('frecuencia_envio')
-                  ->default(3)
-                  ->comment('Días entre envíos')
-                  ->change();
-        });
-
-        // Restaurar nulls al default anterior
+        // 1. Primero restaurar nulls al default anterior (3)
+        // (Antes de quitarle el permiso de ser nulo a la columna)
         DB::table('candidatos')
             ->whereNull('frecuencia_envio')
             ->update(['frecuencia_envio' => 3]);
+
+        // 2. Luego volver a hacer la columna NOT NULL (default 3)
+        Schema::table('candidatos', function (Blueprint $table) {
+            $table->integer('frecuencia_envio')
+                  ->default(3)
+                  ->nullable(false) // Volver a NOT NULL
+                  ->comment('Días entre envíos')
+                  ->change();
+        });
     }
 };
