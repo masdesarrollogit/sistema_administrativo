@@ -8,9 +8,11 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// Programar envío de recordatorios a candidatos (Lunes 9:00 AM España)
+// Programar envío de recordatorios a candidatos (diario 9:00 AM España)
+// Se ejecuta cada día; la frecuencia personalizada de cada candidato
+// (campo frecuencia_envio) se evalúa internamente en scopeListosParaRecordatorio
 Schedule::command('candidatos:enviar-recordatorios')
-    ->weeklyOn(1, config('candidatos.recordatorios.recordatorios_hora', '09:00'))
+    ->dailyAt(config('candidatos.recordatorios.recordatorios_hora', '09:00'))
     ->timezone('Europe/Madrid')
     ->emailOutputOnFailure(config('candidatos.recordatorios.email_errores'))
     ->onFailure(function () {

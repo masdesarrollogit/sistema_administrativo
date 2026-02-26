@@ -140,9 +140,13 @@
                                 <input type="number" 
                                        wire:model.live="frecuencia_envio" 
                                        min="1"
+                                       placeholder="—"
                                        class="w-20 rounded-md border-indigo-200 shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-center text-sm bg-white">
                                 <span class="text-xs text-indigo-600 italic">días entre correos</span>
                             </div>
+                            <p class="text-xs text-gray-500 mt-1">
+                                Vacío = semanal (lunes)
+                            </p>
                         </div>
 
                         <div>

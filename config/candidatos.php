@@ -13,7 +13,7 @@ return [
     
     'recordatorios' => [
         // Días de espera entre recordatorios
-        'dias_entre_envios' => env('CANDIDATOS_DIAS_ENTRE_RECORDATORIOS', 3),
+        'dias_entre_envios' => env('CANDIDATOS_DIAS_ENTRE_RECORDATORIOS', 7),
         
         // Máximo de recordatorios antes de pausar
         'max_recordatorios' => env('CANDIDATOS_MAX_RECORDATORIOS', 5),

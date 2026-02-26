@@ -33,7 +33,7 @@ class CandidatoEstatus extends Component
         
         // Inicializar configuración
         $this->fecha_inicio = $candidato->fecha_inicio ? $candidato->fecha_inicio->format('Y-m-d') : null;
-        $this->frecuencia_envio = $candidato->frecuencia_envio ?? 3;
+        $this->frecuencia_envio = $candidato->frecuencia_envio;
         $this->descripcion_personalizada = $candidato->descripcion_personalizada ?? '';
         $this->observacion = $candidato->observacion ?? '';
         
@@ -62,7 +62,7 @@ class CandidatoEstatus extends Component
     {
         $this->validate([
             'fecha_inicio' => 'nullable|date',
-            'frecuencia_envio' => 'required|integer|min:1',
+            'frecuencia_envio' => 'nullable|integer|min:1',
             'descripcion_personalizada' => 'nullable|string',
             'observacion' => 'nullable|string',
             'archivos.*' => 'nullable|file|max:10240', // 10MB máx

@@ -105,13 +105,16 @@ class Candidato extends Model
     }
 
     /**
-     * Scope para candidatos listos para recibir recordatorio
+     * Scope para candidatos listos para recibir recordatorio.
+     *
+     * Dos grupos:
+     *  - frecuencia_envio IS NULL → solo los lunes (semanal genérico)
+     *  - frecuencia_envio IS NOT NULL → cada X días según su configuración
      */
     public function scopeListosParaRecordatorio($query)
     {
-        $config = config('candidatos.recordatorios');
-        $maxRecordatorios = $config['max_recordatorios'];
-        $diasEsperaDefault = $config['dias_entre_envios'];
+        $maxRecordatorios = config('candidatos.recordatorios.max_recordatorios');
+        $hoyEsLunes = now('Europe/Madrid')->isMonday();
 
         return $query->where('estatus', 'pendiente')
             ->where('recordatorios_enviados', '<', $maxRecordatorios)
@@ -119,9 +122,25 @@ class Candidato extends Model
                 $q->whereNull('fecha_inicio')
                   ->orWhere('fecha_inicio', '<=', now());
             })
-            ->where(function ($q) use ($diasEsperaDefault) {
-                $q->whereNull('ultimo_recordatorio')
-                  ->orWhereRaw("ultimo_recordatorio <= DATE_SUB(NOW(), INTERVAL COALESCE(frecuencia_envio, ?) DAY)", [$diasEsperaDefault]);
+            ->where(function ($q) use ($hoyEsLunes) {
+                // Grupo A: sin frecuencia personalizada → solo los lunes
+                $q->where(function ($subQ) use ($hoyEsLunes) {
+                    $subQ->whereNull('frecuencia_envio');
+                    if ($hoyEsLunes) {
+                        // Es lunes: incluir estos candidatos
+                    } else {
+                        // No es lunes: excluir (condición imposible)
+                        $subQ->whereRaw('1 = 0');
+                    }
+                })
+                // Grupo B: con frecuencia personalizada → cada X días
+                ->orWhere(function ($subQ) {
+                    $subQ->whereNotNull('frecuencia_envio')
+                         ->where(function ($inner) {
+                             $inner->whereNull('ultimo_recordatorio')
+                                   ->orWhereRaw('ultimo_recordatorio <= DATE_SUB(NOW(), INTERVAL frecuencia_envio DAY)');
+                         });
+                });
             });
     }
 
@@ -160,13 +179,17 @@ class Candidato extends Model
             return false;
         }
 
+        // Sin frecuencia personalizada → solo los lunes
+        if ($this->frecuencia_envio === null) {
+            return now('Europe/Madrid')->isMonday();
+        }
+
+        // Con frecuencia personalizada → cada X días
         if ($this->ultimo_recordatorio === null) {
             return true;
         }
 
-        $diasEspera = $this->frecuencia_envio ?? $config['dias_entre_envios'];
-        $fechaLimite = now()->subDays($diasEspera);
-
+        $fechaLimite = now()->subDays($this->frecuencia_envio);
         return $this->ultimo_recordatorio <= $fechaLimite;
     }
 
