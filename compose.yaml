@@ -21,6 +21,7 @@ services:
             - '.:/var/www/html'
         networks:
             - sail
+            - moodle_aula1_moodle-network
         depends_on:
             - mysql
             - redis
@@ -142,6 +143,8 @@ services:
 networks:
     sail:
         driver: bridge
+    moodle_aula1_moodle-network:
+        external: true
 volumes:
     sail-mysql:
         driver: local

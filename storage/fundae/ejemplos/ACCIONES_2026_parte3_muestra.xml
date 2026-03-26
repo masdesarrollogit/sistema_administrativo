@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Muestra reducida del XML real ACCIONES_2026_parte3.xml (acciones 146-222) -->
+<!-- El archivo completo contiene ~77 acciones formativas con objetivos y contenidos extensos -->
+<AccionesFormativas>
+  <AccionFormativa>
+    <codAccion>146</codAccion>
+    <nombreAccion>Curso de canva e ia 80h m</nombreAccion>
+    <codGrupoAccion>068-06</codGrupoAccion>
+    <codAreaProfesional>ADGG</codAreaProfesional>
+    <modalidadTeleformacion>
+      <horasTe>80</horasTe>
+    </modalidadTeleformacion>
+    <cifPlataforma>B65828857</cifPlataforma>
+    <razonSocialPlataforma>MARKETING SOFTWARE 2012</razonSocialPlataforma>
+    <uri>aula.1curso.com</uri>
+    <usuario>supervisortripartita@webcurso.es</usuario>
+    <password>Tr1part1ta4444*</password>
+    <objetivos>Objetivo Al finalizar este curso, habrás desarrollado competencias avanzadas en diseño gráfico digital y dominio de herramientas de inteligencia artificial aplicadas al contenido visual.</objetivos>
+    <contenidos>Módulo 1.CANVA PARA LA CREACIÓN DE MATERIALES GRÁFICOS (7 unidades) + Módulo 2. DOMINA CANVA CON INTELIGENCIA ARTIFICIAL (6 unidades)</contenidos>
+  </AccionFormativa>
+  <!-- Ejemplo de acción con plataforma secundaria (System/plataformateleformacion.com) -->
+  <AccionFormativa>
+    <codAccion>160</codAccion>
+    <nombreAccion>Contabilidad avanzada 20h a m</nombreAccion>
+    <codGrupoAccion>068-06</codGrupoAccion>
+    <codAreaProfesional>ADGG</codAreaProfesional>
+    <modalidadTeleformacion>
+      <horasTe>20</horasTe>
+    </modalidadTeleformacion>
+    <cifPlataforma>B41273392</cifPlataforma>
+    <razonSocialPlataforma>System Centros de Formación, S.L.</razonSocialPlataforma>
+    <uri>www.plataformateleformacion.com</uri>
+    <usuario>Smarkesoft</usuario>
+    <password>SuperMarket4444</password>
+    <objetivos>Con este curso extrae conceptos avanzados de Contabilidad para PYMES.</objetivos>
+    <contenidos>8 unidades: Acreedores y Deudores I y II, Gastos e ingresos, Inmovilizado Material I y II, Inmovilizado Intangible, Inversiones Financieras, Fuentes de Financiación</contenidos>
+  </AccionFormativa>
+</AccionesFormativas>

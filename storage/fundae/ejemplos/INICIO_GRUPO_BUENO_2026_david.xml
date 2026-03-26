@@ -1,0 +1,52 @@
+<grupos>
+  <grupo>
+    <idAccion>241</idAccion>
+    <idGrupo>3</idGrupo>
+    <descripcion>B55154595 GITAXI SL Cristina Burgos Palacios Gestión del Estrés 25h T2D</descripcion>
+    <NumeroParticipante>1</NumeroParticipante>
+    <fechaInicio>10/04/2026</fechaInicio>
+    <fechaFin>05/05/2026</fechaFin>
+    <responsable>Alvaro Pino</responsable>
+    <telefonoContacto>601233530</telefonoContacto>
+    <distanciaTeleformacion>
+      <asistenciaTeleformacion>
+        <centro>
+          <cif>B65828857</cif>
+          <nombreCentro>MARKETING SOFTWARE 2012</nombreCentro>
+          <direccionDetallada>CALLE ARIBAU 161, BARCELONA</direccionDetallada>
+          <codPostal>08036</codPostal>
+          <localidad>BARCELONA</localidad>
+        </centro>
+        <telefono>601233530</telefono>
+      </asistenciaTeleformacion>
+      <horario>
+        <horaTotales>25</horaTotales>
+        <horaInicioTramo2>15:00</horaInicioTramo2>
+        <horaFinTramo2>18:00</horaFinTramo2>
+        <dias>LMXJV</dias>
+      </horario>
+      <Tutor>
+        <numeroHoras>25</numeroHoras>
+        <tipoDocumento>10</tipoDocumento>
+        <documento>46350455G</documento>
+        <nombre>David</nombre>
+        <apellido1>Guerra</apellido1>
+        <apellido2>Murciano</apellido2>
+        <telefono>601233530</telefono>
+        <correoElectronico>tutorias@webcurso.es</correoElectronico>
+        <tutoria>
+          <tipoTutoria><tutorias>1</tutorias></tipoTutoria>
+          <descripcion>Información adicional</descripcion>
+        </tutoria>
+      </Tutor>
+    </distanciaTeleformacion>
+    <EmpresasParticipantes>
+      <empresa>
+        <cifEmpresaParticipante>B55154595</cifEmpresaParticipante>
+        <jornadaLaboral>1</jornadaLaboral>
+      </empresa>
+    </EmpresasParticipantes>
+    <observaciones></observaciones>
+  </grupo>
+  <!-- Ejemplo con 1 grupo de 11. El XML real contiene 11 grupos (uno por participante) con fechas escalonadas -->
+</grupos>

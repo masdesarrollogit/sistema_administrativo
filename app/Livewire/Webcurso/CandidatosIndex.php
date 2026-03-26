@@ -42,6 +42,14 @@ class CandidatosIndex extends Component
         $this->resetPage();
     }
 
+    public function eliminarCandidato(Candidato $candidato)
+    {
+        $candidato->requisitos()->delete();
+        $candidato->archivos()->delete();
+        $candidato->delete();
+        session()->flash('message', 'Candidato eliminado.');
+    }
+
     public function pausarCandidato(Candidato $candidato)
     {
         $candidato->pausar();
@@ -79,7 +87,9 @@ class CandidatosIndex extends Component
             $query->where(function ($q) {
                 $q->where('nombre_contacto', 'like', '%' . $this->search . '%')
                   ->orWhere('email', 'like', '%' . $this->search . '%')
-                  ->orWhere('telefono', 'like', '%' . $this->search . '%');
+                  ->orWhere('telefono', 'like', '%' . $this->search . '%')
+                  ->orWhereHas('empresa', fn($e) => $e->where('razon_social', 'like', '%' . $this->search . '%'))
+                  ->orWhereHas('empresaExterna', fn($e) => $e->where('razon_social', 'like', '%' . $this->search . '%'));
             });
         }
 

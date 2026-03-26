@@ -89,6 +89,14 @@ class Candidato extends Model
     }
 
     /**
+     * Relación con grupos formativos
+     */
+    public function gruposFormativos(): HasMany
+    {
+        return $this->hasMany(GrupoFormativo::class, 'candidato_id');
+    }
+
+    /**
      * Scope para candidatos pendientes
      */
     public function scopePendientes($query)

@@ -12,93 +12,212 @@ class MoodleService
 
     public function __construct()
     {
-        $this->url = config('moodle.url', env('MOODLE_URL'));
-        $this->token = config('moodle.token', env('MOODLE_TOKEN'));
+        $this->url = rtrim(config('moodle.url', ''), '/');
+        $this->token = config('moodle.token', '');
+    }
+
+    /**
+     * Llamada genérica a la API REST de Moodle (POST).
+     */
+    protected function call(string $function, array $params = []): array
+    {
+        $http = Http::asForm();
+
+        if ($hostOverride = config('moodle.host_override')) {
+            $http = $http->withHeaders(['Host' => $hostOverride]);
+        }
+
+        $response = $http->post($this->url . '/webservice/rest/server.php', array_merge([
+            'wstoken' => $this->token,
+            'wsfunction' => $function,
+            'moodlewsrestformat' => 'json',
+        ], $params));
+
+        if ($response->failed()) {
+            throw new \Exception("Moodle API HTTP error: {$response->status()} - {$response->body()}");
+        }
+
+        $data = $response->json();
+
+        // Algunas funciones devuelven null al tener éxito (ej: enrol_manual_enrol_users)
+        if ($data === null) {
+            return [];
+        }
+
+        // Moodle devuelve errores dentro del JSON
+        if (isset($data['exception'])) {
+            throw new \Exception("Moodle API error: {$data['errorcode']} - {$data['message']}");
+        }
+
+        return $data;
     }
 
     /**
      * Crear un usuario en Moodle.
+     *
+     * @return array Con 'id' del usuario creado
      */
-    public function createUser(array $userData)
+    public function createUser(array $userData): array
     {
-        try {
-            $response = Http::get($this->url . '/webservice/rest/server.php', [
-                'wstoken' => $this->token,
-                'wsfunction' => 'core_user_create_users',
-                'moodlewsrestformat' => 'json',
-                'users' => [
-                    [
-                        'username' => $userData['username'],
-                        'password' => $userData['password'],
-                        'firstname' => $userData['firstname'],
-                        'lastname' => $userData['lastname'],
-                        'email' => $userData['email'],
-                    ]
-                ]
-            ]);
+        $result = $this->call('core_user_create_users', [
+            'users[0][username]' => $userData['username'],
+            'users[0][password]' => $userData['password'],
+            'users[0][firstname]' => $userData['firstname'],
+            'users[0][lastname]' => $userData['lastname'],
+            'users[0][email]' => $userData['email'],
+        ]);
 
-            if ($response->failed()) {
-                throw new \Exception('Error al conectar con Moodle: ' . $response->body());
-            }
-
-            return $response->json();
-        } catch (\Exception $e) {
-            Log::error('Error en MoodleService@createUser: ' . $e->getMessage());
-            return null;
+        if (empty($result) || !isset($result[0]['id'])) {
+            throw new \Exception('Moodle no devolvió el ID del usuario creado.');
         }
+
+        return $result[0]; // ['id' => X, 'username' => '...']
     }
 
     /**
-     * Matricular un usuario en un curso.
+     * Buscar un usuario por username (para verificar si ya existe antes de reintentar).
+     *
+     * @return array|null Datos del usuario o null si no existe
      */
-    public function enrolInCourse(int $userId, int $courseId, int $roleId = 5) // 5 es el rol de estudiante por defecto
+    public function findUserByUsername(string $username): ?array
     {
-        try {
-            $response = Http::get($this->url . '/webservice/rest/server.php', [
-                'wstoken' => $this->token,
-                'wsfunction' => 'enrol_manual_enrol_users',
-                'moodlewsrestformat' => 'json',
-                'enrolments' => [
-                    [
-                        'roleid' => $roleId,
-                        'userid' => $userId,
-                        'courseid' => $courseId,
-                    ]
-                ]
-            ]);
+        $result = $this->call('core_user_get_users', [
+            'criteria[0][key]'   => 'username',
+            'criteria[0][value]' => $username,
+        ]);
 
-            if ($response->failed()) {
-                throw new \Exception('Error al matricular en Moodle: ' . $response->body());
-            }
-
-            return $response->json();
-        } catch (\Exception $e) {
-            Log::error('Error en MoodleService@enrolInCourse: ' . $e->getMessage());
-            return null;
+        if (!empty($result['users'])) {
+            return $result['users'][0];
         }
+
+        return null;
+    }
+
+    /**
+     * Actualizar la contraseña de un usuario existente en Moodle.
+     */
+    public function updateUserPassword(int $userId, string $password): void
+    {
+        $this->call('core_user_update_users', [
+            'users[0][id]'       => $userId,
+            'users[0][password]' => $password,
+        ]);
+    }
+
+    /**
+     * Matricular (o reactivar) un usuario en un curso.
+     *
+     * @param int      $roleId   5=student, 3=editingteacher (por defecto 5)
+     * @param int|null $timeend  Timestamp Unix de fin de matrícula (null = sin límite)
+     * @param int      $suspend  0=activo, 1=suspendido
+     */
+    public function enrolInCourse(int $userId, int $courseId, int $roleId = 5, ?int $timestart = null, ?int $timeend = null, int $suspend = 0): array
+    {
+        $params = [
+            'enrolments[0][roleid]'   => $roleId,
+            'enrolments[0][userid]'   => $userId,
+            'enrolments[0][courseid]' => $courseId,
+            'enrolments[0][suspend]'  => $suspend,
+        ];
+
+        if ($timestart !== null) {
+            $params['enrolments[0][timestart]'] = $timestart;
+        }
+
+        if ($timeend !== null) {
+            $params['enrolments[0][timeend]'] = $timeend;
+        }
+
+        return $this->call('enrol_manual_enrol_users', $params);
     }
 
     /**
      * Obtener las notas del usuario.
      */
-    public function getUserGrades(int $userId)
+    public function getUserGrades(int $userId): array
+    {
+        return $this->call('gradereport_user_get_grades_table', [
+            'userid' => $userId,
+        ]);
+    }
+
+    /**
+     * Obtener los cursos en los que un usuario está matriculado (como alumno o profesor).
+     *
+     * @return array Lista de cursos con 'id' y 'fullname'
+     */
+    public function getUserCourses(int $userId): array
+    {
+        $result = $this->call('core_enrol_get_users_courses', [
+            'userid' => $userId,
+        ]);
+
+        return is_array($result) ? $result : [];
+    }
+
+    /**
+     * Crear un grupo dentro de un curso de Moodle.
+     * Devuelve el ID del grupo creado.
+     */
+    public function createGroup(int $courseId, string $name): int
+    {
+        $result = $this->call('core_group_create_groups', [
+            'groups[0][courseid]'          => $courseId,
+            'groups[0][name]'              => $name,
+            'groups[0][description]'       => '',
+            'groups[0][descriptionformat]' => 1,
+        ]);
+
+        if (empty($result) || !isset($result[0]['id'])) {
+            throw new \Exception('Moodle no devolvió el ID del grupo creado.');
+        }
+
+        return (int) $result[0]['id'];
+    }
+
+    /**
+     * Añadir usuarios a un grupo de Moodle.
+     *
+     * @param int $groupId ID del grupo en Moodle
+     * @param int[] $userIds IDs de los usuarios en Moodle
+     */
+    public function addUsersToGroup(int $groupId, array $userIds): void
+    {
+        $params = [];
+        foreach (array_values($userIds) as $i => $userId) {
+            $params["members[{$i}][groupid]"] = $groupId;
+            $params["members[{$i}][userid]"]  = $userId;
+        }
+
+        $this->call('core_group_add_group_members', $params);
+    }
+
+    /**
+     * Buscar cursos por nombre (texto libre).
+     */
+    public function searchCourses(string $query, int $perpage = 10): array
+    {
+        $result = $this->call('core_course_search_courses', [
+            'criterianame'  => 'search',
+            'criteriavalue' => $query,
+            'page'          => 0,
+            'perpage'       => $perpage,
+        ]);
+
+        return $result['courses'] ?? [];
+    }
+
+    /**
+     * Verificar que la conexión con Moodle funciona.
+     */
+    public function testConnection(): bool
     {
         try {
-            $response = Http::get($this->url . '/webservice/rest/server.php', [
-                'wstoken' => $this->token,
-                'wsfunction' => 'gradereport_user_get_grades_table',
-                'moodlewsrestformat' => 'json',
-                'userid' => $userId,
-            ]);
-
-            if ($response->failed()) {
-                throw new \Exception('Error al obtener notas de Moodle: ' . $response->body());
-            }
-
-            return $response->json();
+            $result = $this->call('core_webservice_get_site_info');
+            return isset($result['sitename']);
         } catch (\Exception $e) {
-            Log::error('Error en MoodleService@getUserGrades: ' . $e->getMessage());
-            return null;
+            Log::error('MoodleService: Error de conexión - ' . $e->getMessage());
+            return false;
         }
     }
 }

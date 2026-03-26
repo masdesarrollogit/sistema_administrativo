@@ -13,15 +13,17 @@ class ImportarCsv extends Component
     public $archivoEmpresas;
     public $archivoGrupos;
     public $archivoParticipantes;
+    public $archivoAccionesFormativas;
     public bool $esAnterior = false;
     public array $logs = [];
     public bool $procesando = false;
     public ?array $resultado = null;
 
     protected $rules = [
-        'archivoEmpresas'      => 'nullable|file|mimes:csv,txt|max:10240',
-        'archivoGrupos'        => 'nullable|file|mimes:csv,txt|max:10240',
-        'archivoParticipantes' => 'nullable|file|mimes:xls,xlsx|max:20480',
+        'archivoEmpresas'            => 'nullable|file|mimes:csv,txt,xls,xlsx|max:20480',
+        'archivoGrupos'              => 'nullable|file|mimes:csv,txt,xls,xlsx|max:20480',
+        'archivoParticipantes'       => 'nullable|file|mimes:xls,xlsx|max:20480',
+        'archivoAccionesFormativas'  => 'nullable|file|mimes:xls,xlsx|max:20480',
     ];
 
     public function updatedArchivoEmpresas(): void
@@ -39,11 +41,16 @@ class ImportarCsv extends Component
         $this->validateOnly('archivoParticipantes');
     }
 
+    public function updatedArchivoAccionesFormativas(): void
+    {
+        $this->validateOnly('archivoAccionesFormativas');
+    }
+
     public function procesar(): void
     {
         $this->validate();
 
-        if (!$this->archivoEmpresas && !$this->archivoGrupos && !$this->archivoParticipantes) {
+        if (!$this->archivoEmpresas && !$this->archivoGrupos && !$this->archivoParticipantes && !$this->archivoAccionesFormativas) {
             $this->addError('general', 'Debes subir al menos un archivo');
             return;
         }
@@ -88,6 +95,16 @@ class ImportarCsv extends Component
             $totalErrores += $resultadoParticipantes['errores'];
         }
 
+        // Procesar acciones formativas (XLS de FUNDAE)
+        if ($this->archivoAccionesFormativas) {
+            $resultadoAcciones = $service->importarAccionesFormativas(
+                $this->archivoAccionesFormativas
+            );
+            $this->logs = array_merge($this->logs, $resultadoAcciones['logs']);
+            $totalProcesados += $resultadoAcciones['procesados'];
+            $totalErrores += $resultadoAcciones['errores'];
+        }
+
         $this->resultado = [
             'procesados' => $totalProcesados,
             'errores'    => $totalErrores,
@@ -97,13 +114,14 @@ class ImportarCsv extends Component
         $this->archivoEmpresas = null;
         $this->archivoGrupos = null;
         $this->archivoParticipantes = null;
+        $this->archivoAccionesFormativas = null;
 
         $this->dispatch('import-completed');
     }
 
     public function limpiar(): void
     {
-        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'logs', 'resultado']);
+        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'archivoAccionesFormativas', 'logs', 'resultado']);
         $this->resetValidation();
     }
 

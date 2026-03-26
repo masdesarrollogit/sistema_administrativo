@@ -6,6 +6,7 @@ use App\Models\Empresa;
 use App\Models\EmpresaAnterior;
 use App\Models\Grupo;
 use App\Models\GrupoAnterior;
+use App\Models\AccionFormativa;
 use App\Models\ParticipanteBonificado;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -26,27 +27,19 @@ class CsvImportService
     {
         $this->resetContadores();
         $modelo = $esAnterior ? EmpresaAnterior::class : Empresa::class;
-        
-        $this->log('info', '🏢 Iniciando importación de EMPRESAS...');
+
+        $this->log('info', 'Iniciando importación de EMPRESAS...');
         $this->log('info', 'Archivo: ' . $archivo->getClientOriginalName());
 
         try {
-            $handle = fopen($archivo->getRealPath(), 'r');
-            if (!$handle) {
-                throw new \Exception('No se pudo abrir el archivo');
-            }
+            $filas = $this->leerFilas($archivo);
+            $this->log('info', 'Filas detectadas: ' . count($filas));
 
-            // Leer headers
-            $headers = $this->leerHeaders($handle);
-            $this->log('info', 'Headers detectados: ' . count($headers) . ' columnas');
-
-            // Procesar cada línea
-            while (($data = fgetcsv($handle, 0, ';')) !== false) {
+            foreach ($filas as $data) {
                 if (count($data) >= 22) {
                     $cif = $this->limpiarDato($data[1] ?? '');
                     $razon = $this->limpiarDato($data[2] ?? '');
 
-                    // Omitir filas efectivamente vacías (sin CIF y sin Razón Social)
                     if (empty($cif) && empty($razon)) {
                         $this->omitidos++;
                         continue;
@@ -55,7 +48,7 @@ class CsvImportService
                     try {
                         $this->procesarEmpresa($data, $modelo);
                         $this->procesados++;
-                        
+
                         if ($this->procesados <= 3) {
                             $this->log('success', "Empresa {$this->procesados}: $cif - $razon");
                         }
@@ -64,20 +57,18 @@ class CsvImportService
                         $this->log('error', "Error en empresa: " . $e->getMessage());
                     }
                 } else {
-                    // Verificar si al menos tiene algo de contenido antes de loguear warning
                     $contenido = implode('', $data);
                     if (!empty(trim($contenido))) {
-                        $this->log('warning', 'Fila con columnas insuficientes (' . count($data) . '): ' . substr($contenido, 0, 50) . '...');
+                        $this->log('warning', 'Fila con columnas insuficientes (' . count($data) . ')');
                     }
                     $this->omitidos++;
                 }
             }
 
-            fclose($handle);
-            $this->log('success', "✅ Empresas procesadas (UPSERT): {$this->procesados} registros");
+            $this->log('success', "Empresas procesadas (UPSERT): {$this->procesados} registros");
 
         } catch (\Exception $e) {
-            $this->log('error', '❌ Error general: ' . $e->getMessage());
+            $this->log('error', 'Error general: ' . $e->getMessage());
         }
 
         return $this->getResultado();
@@ -92,36 +83,26 @@ class CsvImportService
         $modelo = $esAnterior ? GrupoAnterior::class : Grupo::class;
         $tabla = $esAnterior ? 'grupos_anterior' : 'grupos';
 
-        $this->log('info', '👥 Iniciando importación de GRUPOS...');
+        $this->log('info', 'Iniciando importación de GRUPOS...');
         $this->log('info', 'Archivo: ' . $archivo->getClientOriginalName());
 
         try {
-            // Limpiar tabla antes de importar
             DB::table($tabla)->truncate();
-            $this->log('info', '✅ Tabla grupos limpiada');
+            $this->log('info', 'Tabla grupos limpiada');
 
-            $handle = fopen($archivo->getRealPath(), 'r');
-            if (!$handle) {
-                throw new \Exception('No se pudo abrir el archivo');
-            }
+            $filas = $this->leerFilas($archivo);
+            $this->log('info', 'Filas detectadas: ' . count($filas));
 
-            // Leer headers
-            $headers = $this->leerHeaders($handle);
-            $this->log('info', 'Headers detectados: ' . count($headers) . ' columnas');
-
-            // Procesar cada línea
-            while (($data = fgetcsv($handle, 0, ';')) !== false) {
+            foreach ($filas as $data) {
                 if (count($data) >= 17) {
                     $grupo_id = $this->limpiarDato($data[0] ?? '');
                     $denominacion = $this->limpiarDato($data[4] ?? '');
-                    
-                    // 1. Ignorar líneas totalmente vacías (sin ID y sin Denominación)
+
                     if (empty($grupo_id) && empty($denominacion)) {
                         $this->omitidos++;
                         continue;
                     }
 
-                    // 2. Ignorar registros "NO VA" (por petición expresa del usuario)
                     if ($this->esNoVa($denominacion)) {
                         $this->omitidos++;
                         continue;
@@ -130,7 +111,7 @@ class CsvImportService
                     try {
                         $this->procesarGrupo($data, $modelo);
                         $this->procesados++;
-                        
+
                         if ($this->procesados <= 3) {
                             $cif = $this->extraerCif($denominacion);
                             $this->log('success', "Grupo {$this->procesados}: CIF=$cif");
@@ -144,14 +125,13 @@ class CsvImportService
                 }
             }
 
-            fclose($handle);
-            $this->log('success', "✅ Grupos procesados: {$this->procesados} registros");
+            $this->log('success', "Grupos procesados: {$this->procesados} registros");
             if ($this->omitidos > 0) {
-                $this->log('info', "ℹ️ Registros omitidos: {$this->omitidos}");
+                $this->log('info', "Registros omitidos: {$this->omitidos}");
             }
 
         } catch (\Exception $e) {
-            $this->log('error', '❌ Error general: ' . $e->getMessage());
+            $this->log('error', 'Error general: ' . $e->getMessage());
         }
 
         return $this->getResultado();
@@ -341,6 +321,81 @@ class CsvImportService
     }
 
     /**
+     * Leer todas las filas de un archivo (CSV o XLS/XLSX).
+     * Devuelve un array de arrays, saltando la cabecera.
+     */
+    public function leerFilas(UploadedFile $archivo): array
+    {
+        $extension = strtolower($archivo->getClientOriginalExtension());
+
+        if (in_array($extension, ['xls', 'xlsx'])) {
+            return $this->leerFilasXls($archivo);
+        }
+
+        return $this->leerFilasCsv($archivo);
+    }
+
+    protected function leerFilasXls(UploadedFile $archivo): array
+    {
+        $spreadsheet = IOFactory::load($archivo->getRealPath());
+        $sheet = $spreadsheet->getActiveSheet();
+        $maxRow = $sheet->getHighestRow();
+        $maxCol = $sheet->getHighestColumn();
+        $filas = [];
+
+        for ($row = 2; $row <= $maxRow; $row++) {
+            $fila = [];
+            foreach (range('A', $maxCol) as $col) {
+                $cell = $sheet->getCell($col . $row);
+                $value = $cell->getValue();
+
+                // Si es número serial de Excel para fecha, convertir
+                if (is_numeric($value) && $value > 25000 && $value < 60000) {
+                    try {
+                        $dateTime = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value);
+                        $fila[] = $dateTime->format('d/m/Y');
+                        continue;
+                    } catch (\Exception $e) {
+                        // No es fecha, usar valor normal
+                    }
+                }
+
+                $fila[] = trim((string) ($value ?? ''));
+            }
+            $filas[] = $fila;
+        }
+
+        return $filas;
+    }
+
+    protected function leerFilasCsv(UploadedFile $archivo): array
+    {
+        $handle = fopen($archivo->getRealPath(), 'r');
+        if (!$handle) {
+            throw new \Exception('No se pudo abrir el archivo CSV');
+        }
+
+        // Auto-detectar separador (;  o ,)
+        $primeraLinea = fgets($handle);
+        rewind($handle);
+        $delimiter = str_contains($primeraLinea, ';') ? ';' : ',';
+
+        // Saltar cabecera
+        $headers = fgetcsv($handle, 0, $delimiter);
+        if (isset($headers[0])) {
+            $headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $headers[0]);
+        }
+
+        $filas = [];
+        while (($data = fgetcsv($handle, 0, $delimiter)) !== false) {
+            $filas[] = $data;
+        }
+        fclose($handle);
+
+        return $filas;
+    }
+
+    /**
      * Leer headers del CSV
      */
     protected function leerHeaders($handle): array
@@ -390,15 +445,29 @@ class CsvImportService
     }
 
     /**
-     * Convertir fecha
+     * Convertir fecha desde formato dd/mm/yyyy o yyyy-mm-dd a Y-m-d
      */
     protected function convertirFecha(string $fecha): ?string
     {
+        $fecha = trim($this->limpiarDato($fecha));
         if (empty($fecha)) {
             return null;
         }
+
         try {
-            return date('Y-m-d', strtotime(str_replace('/', '-', $this->limpiarDato($fecha))));
+            // Formato dd/mm/yyyy
+            if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $fecha, $m)) {
+                return sprintf('%04d-%02d-%02d', $m[3], $m[2], $m[1]);
+            }
+
+            // Formato yyyy-mm-dd (ya correcto)
+            if (preg_match('#^\d{4}-\d{2}-\d{2}$#', $fecha)) {
+                return $fecha;
+            }
+
+            // Intentar con strtotime como fallback
+            $ts = strtotime($fecha);
+            return $ts && $ts > 0 ? date('Y-m-d', $ts) : null;
         } catch (\Exception $e) {
             return null;
         }
@@ -430,6 +499,78 @@ class CsvImportService
     /**
      * Agregar log
      */
+    /**
+     * Importar archivo XLS de Acciones Formativas de FUNDAE
+     * UPSERT por numero_accion (no truncar, tiene relaciones)
+     */
+    public function importarAccionesFormativas(UploadedFile $archivo): array
+    {
+        $this->resetContadores();
+
+        $this->log('info', 'Iniciando importación de ACCIONES FORMATIVAS...');
+        $this->log('info', 'Archivo: ' . $archivo->getClientOriginalName());
+
+        try {
+            $spreadsheet = IOFactory::load($archivo->getRealPath());
+            $sheet = $spreadsheet->getActiveSheet();
+            $maxRow = $sheet->getHighestRow();
+
+            $this->log('info', 'Filas detectadas: ' . ($maxRow - 1) . ' (excluye cabecera)');
+
+            for ($row = 2; $row <= $maxRow; $row++) {
+                $numeroAccion = trim($sheet->getCell('A' . $row)->getValue() ?? '');
+                $denominacion = trim($sheet->getCell('B' . $row)->getValue() ?? '');
+
+                if (empty($numeroAccion) && empty($denominacion)) {
+                    $this->omitidos++;
+                    continue;
+                }
+
+                try {
+                    AccionFormativa::updateOrCreate(
+                        ['numero_accion' => (int) $numeroAccion],
+                        [
+                            'denominacion' => $denominacion,
+                            'modalidad' => trim($sheet->getCell('C' . $row)->getValue() ?? ''),
+                            'tipo' => trim($sheet->getCell('D' . $row)->getValue() ?? ''),
+                            'estado' => trim($sheet->getCell('E' . $row)->getValue() ?? ''),
+                            'horas' => (int) ($sheet->getCell('F' . $row)->getValue() ?? 0),
+                            'nivel_formacion' => trim($sheet->getCell('G' . $row)->getValue() ?? '') ?: null,
+                            'nif_proveedor_plataforma' => trim($sheet->getCell('H' . $row)->getValue() ?? '') ?: null,
+                            'url_plataforma' => trim($sheet->getCell('I' . $row)->getValue() ?? '') ?: null,
+                            'clave_acceso' => trim($sheet->getCell('J' . $row)->getValue() ?? '') ?: null,
+                            'usuario_supervision' => trim($sheet->getCell('K' . $row)->getValue() ?? '') ?: null,
+                            'area_profesional' => trim($sheet->getCell('L' . $row)->getValue() ?? '') ?: null,
+                            'codigo_actividad' => trim($sheet->getCell('M' . $row)->getValue() ?? '') ?: null,
+                        ]
+                    );
+
+                    $this->procesados++;
+
+                    if ($this->procesados <= 3) {
+                        $this->log('success', "Acción {$this->procesados}: #{$numeroAccion} - {$denominacion}");
+                    }
+                } catch (\Exception $e) {
+                    $this->errores++;
+                    $this->log('error', "Error en fila {$row}: " . $e->getMessage());
+                }
+            }
+
+            $this->log('success', "Acciones formativas importadas: {$this->procesados} registros (UPSERT)");
+            if ($this->omitidos > 0) {
+                $this->log('info', "Registros omitidos: {$this->omitidos}");
+            }
+            if ($this->errores > 0) {
+                $this->log('error', "Errores: {$this->errores}");
+            }
+
+        } catch (\Exception $e) {
+            $this->log('error', 'Error general: ' . $e->getMessage());
+        }
+
+        return $this->getResultado();
+    }
+
     protected function log(string $tipo, string $mensaje): void
     {
         $this->logs[] = ['tipo' => $tipo, 'mensaje' => $mensaje];

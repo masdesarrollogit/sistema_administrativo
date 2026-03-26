@@ -25,7 +25,7 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">Buscar</label>
                             <input type="text" 
                                    wire:model.live.debounce.300ms="search" 
-                                   placeholder="Nombre, email o teléfono..."
+                                   placeholder="Nombre, email, teléfono o entidad..."
                                    class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                         </div>
 
@@ -150,6 +150,12 @@
                                                     ▶️ Reactivar
                                                 </button>
                                             @endif
+
+                                            <button wire:click="eliminarCandidato({{ $candidato->id }})"
+                                                    wire:confirm="¿Eliminar a {{ $candidato->nombre_contacto }}? Esta acción no se puede deshacer."
+                                                    class="inline-flex items-center px-2 py-1 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors">
+                                                🗑️ Eliminar
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>

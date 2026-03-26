@@ -107,6 +107,19 @@ class CandidatoEstatus extends Component
         }
     }
 
+    public function completarTodosRequisitos(): void
+    {
+        $pendientes = $this->candidato->requisitos
+            ->whereNotIn('estado', ['completado']);
+
+        foreach ($pendientes as $requisito) {
+            $requisito->marcarCompletado($this->notas[$requisito->id] ?? null);
+        }
+
+        $this->candidato->refresh();
+        session()->flash('message', "Todos los requisitos marcados como completados ({$pendientes->count()}).");
+    }
+
     public function marcarCompletado($requisitoId)
     {
         $requisito = RequisitoCandidato::find($requisitoId);

@@ -145,40 +145,6 @@
                         </div>
                     </div>
 
-                    {{-- Datos del Curso --}}
-                    <div class="mb-6">
-                        <h3 class="font-black text-gray-800 uppercase tracking-widest text-sm mb-4 border-b pb-2">📚 Datos del Curso</h3>
-                        
-                        <div class="relative">
-                            <label class="block text-xs font-black text-gray-500 uppercase mb-2 tracking-tighter">
-                                Nombre del Curso
-                            </label>
-                            <input type="text" 
-                                   wire:model.live.debounce.300ms="curso_nombre" 
-                                   class="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-sm"
-                                   placeholder="Empieza a escribir el curso..."
-                                   autocomplete="off">
-                            
-                            {{-- Dropdown Autocomplete --}}
-                            @if($showDropdown && count($results) > 0)
-                                <div class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-60 overflow-y-auto overflow-x-hidden">
-                                    @foreach($results as $curso)
-                                        <button type="button" 
-                                                wire:key="curso-{{ $curso->id }}"
-                                                wire:click="seleccionarCurso({{ $curso->id }})"
-                                                class="w-full text-left px-4 py-3 hover:bg-indigo-50 transition-colors border-b border-gray-50 last:border-0 group">
-                                            <div class="font-bold text-gray-900 text-sm group-hover:text-indigo-700">{{ $curso->titulo }}</div>
-                                            <div class="flex justify-between items-center mt-1">
-                                                <span class="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-black uppercase">{{ $curso->categoria->nombre }}</span>
-                                            </div>
-                                        </button>
-                                    @endforeach
-                                </div>
-                            @endif
-                            @error('curso_nombre') <span class="text-red-500 text-xs mt-1 block">{{ $message }}</span> @enderror
-                        </div>
-                    </div>
-
                     {{-- Notas --}}
                     <div class="mb-6">
                         <label class="block text-sm font-medium text-gray-700 mb-2">

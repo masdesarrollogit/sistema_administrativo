@@ -50,7 +50,7 @@
                         <h3 class="mt-2 text-lg font-semibold text-gray-900">Archivo de Empresas</h3>
                         <p class="text-sm text-gray-500 mb-4">Formato CSV con separador punto y coma (;)</p>
 
-                        <input type="file" wire:model="archivoEmpresas" accept=".csv,.txt"
+                        <input type="file" wire:model="archivoEmpresas" accept=".csv,.txt,.xls,.xlsx"
                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
 
                         @error('archivoEmpresas')
@@ -72,7 +72,7 @@
                         <h3 class="mt-2 text-lg font-semibold text-gray-900">Archivo de Grupos</h3>
                         <p class="text-sm text-gray-500 mb-4">Formato CSV con separador punto y coma (;)</p>
 
-                        <input type="file" wire:model="archivoGrupos" accept=".csv,.txt"
+                        <input type="file" wire:model="archivoGrupos" accept=".csv,.txt,.xls,.xlsx"
                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
 
                         @error('archivoGrupos')
@@ -110,15 +110,38 @@
                     </div>
                 </div>
 
+                {{-- Acciones Formativas FUNDAE --}}
+                <div class="mb-6">
+                    <div class="bg-white border-2 border-dashed border-purple-200 rounded-lg p-6 hover:border-purple-400 transition-colors">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-2">Acciones Formativas FUNDAE</h3>
+                        <p class="text-sm text-gray-500 mb-1">Archivo Excel (.xls / .xlsx) descargado de FUNDAE</p>
+                        <p class="text-xs text-gray-400 mb-4">Columnas: Numero Accion, Denominacion, Modalidad, Tipo, Estado, Horas, Nivel, NIF Plataforma, URL, Clave, Usuario, Area Profesional, Codigo Actividad</p>
+
+                        <input type="file" wire:model="archivoAccionesFormativas" accept=".xls,.xlsx"
+                               class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
+
+                        @error('archivoAccionesFormativas')
+                            <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+
+                        @if($archivoAccionesFormativas)
+                            <p class="mt-2 text-sm text-purple-600">
+                                {{ $archivoAccionesFormativas->getClientOriginalName() }}
+                            </p>
+                        @endif
+                    </div>
+                </div>
+
                 {{-- Información importante --}}
                 <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                     <h4 class="font-semibold text-amber-800 flex items-center gap-2">
-                        ⚠️ Información Importante
+                        Información Importante
                     </h4>
                     <ul class="mt-2 text-sm text-amber-700 list-disc list-inside space-y-1">
                         <li><strong>Empresas:</strong> Se actualizarán por CIF (UPSERT). Los registros existentes se modificarán.</li>
                         <li><strong>Grupos:</strong> Se <strong class="text-red-600">eliminarán todos</strong> los grupos existentes y se cargarán los nuevos.</li>
                         <li><strong>Participantes:</strong> Se <strong class="text-red-600">eliminarán todos</strong> los registros anteriores y se cargarán los nuevos.</li>
+                        <li><strong>Acciones Formativas:</strong> Se actualizarán por Número de Acción (UPSERT). No se eliminan registros existentes.</li>
                         <li>Los archivos CSV deben usar <strong>punto y coma (;)</strong> como separador.</li>
                     </ul>
                 </div>

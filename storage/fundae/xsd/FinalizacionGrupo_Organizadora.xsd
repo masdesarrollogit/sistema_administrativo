@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:annotation>
+    <xs:documentation>Esquema XML para la finalización masiva de grupos de una empresa Organizadora.</xs:documentation>
+  </xs:annotation>
+  <xs:simpleType name="t_diploma">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="S"/>
+      <xs:enumeration value="N"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_idAccion">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="5"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+      <xs:pattern value="[0-9]{1,5}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_nif">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Za-z0-9]{8,10}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cif">
+    <xs:restriction base="xs:string">
+      <xs:length value="9"/>
+      <xs:pattern value="[AaBbCcDdEeFfGgHhKkLlMmNnPpQqSsJjUuVvWwRr][0-9]{7}[AaBbCcDdEeFfGgHhIiJj0123456789]"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cif_nif">
+    <xs:union memberTypes="t_cif t_nif"/>
+  </xs:simpleType>
+  <xs:simpleType name="t_decimal">
+    <xs:restriction base="xs:decimal">
+      <xs:minInclusive value="0"/>
+      <xs:pattern value="[0-9]{0,7}([.][0-9]{0,2}){0,1}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_categoriaprofesional">
+    <xs:restriction base="xs:int">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="5"/>
+      <xs:totalDigits value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_nivelestudios">
+    <xs:restriction base="xs:int">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="10"/>
+      <xs:totalDigits value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_idGrupo">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="5"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+      <xs:pattern value="[0-9]{1,11}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_email">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Za-z0-9_-]+([-+.'][A-Za-z0-9_-]+)*@[A-Za-z0-9_]+([-.][A-Za-z0-9_]+)*\.[A-Za-z0-9_]+([-.][A-Za-z0-9_]+)*"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_telefono">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9]{9,12}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_mes">
+    <xs:restriction base="xs:int">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="12"/>
+      <xs:totalDigits value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_tipo_documento">
+    <xs:restriction base="xs:int">
+      <xs:pattern value="[126]{1}[0]{1}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_participante">
+    <xs:sequence>
+      <xs:element name="nif" type="t_nif"/>
+      <xs:element name="N_TIPO_DOCUMENTO" type="t_tipo_documento"/>
+      <xs:element name="ERTE_RD_ley" type="xs:boolean" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="email" type="t_email"/>
+      <xs:element name="telefono" type="t_telefono"/>
+      <xs:element name="discapacidad" type="xs:boolean" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="afectadosTerrorismo" type="xs:boolean" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="afectadosViolenciaGenero" type="xs:boolean" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="categoriaprofesional" type="t_categoriaprofesional"/>
+      <xs:element name="nivelestudios" type="t_nivelestudios"/>
+      <xs:element name="DiplomaAcreditativo" type="t_diploma"/>
+      <xs:element name="fijoDiscontinuo" type="xs:boolean" minOccurs="0" maxOccurs="1"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_coste">
+    <xs:sequence>
+      <xs:element name="cifagrupada" type="t_cif_nif"/>
+      <xs:element name="directos" type="t_decimal"/>
+      <xs:element name="indirectos" type="t_decimal"/>
+      <xs:element name="organizacion" type="t_decimal"/>
+      <xs:element name="salariales" type="t_decimal"/>
+      <xs:element name="periodos" type="t_periodos" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_periodo">
+    <xs:sequence>
+      <xs:element name="mes" type="t_mes"/>
+      <xs:element name="importe" type="t_decimal"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_periodos">
+    <xs:sequence>
+      <xs:element name="periodo" type="t_periodo" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_costes">
+    <xs:sequence>
+      <xs:element name="coste" type="t_coste" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_participantes">
+    <xs:sequence>
+      <xs:element name="participante" type="t_participante" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_grupo">
+    <xs:sequence>
+      <xs:element name="idAccion" type="t_idAccion"/>
+      <xs:element name="idGrupo" type="t_idGrupo"/>
+      <xs:element name="participantes" type="t_participantes"/>
+      <xs:element name="costes" type="t_costes"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="grupos">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="grupo" type="t_grupo" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

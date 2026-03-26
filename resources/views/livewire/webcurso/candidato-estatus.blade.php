@@ -259,7 +259,16 @@
             {{-- Gestión de Requisitos --}}
             <div class="lg:col-span-2">
                 <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
-                    <h3 class="text-lg font-bold text-gray-800 mb-6">Requisitos Administrativos</h3>
+                    <div class="flex items-center justify-between mb-6">
+                        <h3 class="text-lg font-bold text-gray-800">Requisitos Administrativos</h3>
+                        @if($candidato->requisitos->where('estado', '!=', 'completado')->count() > 0)
+                            <button wire:click="completarTodosRequisitos"
+                                    wire:confirm="¿Marcar TODOS los requisitos pendientes como completados?"
+                                    class="px-3 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 font-medium">
+                                ✅ Completar todos
+                            </button>
+                        @endif
+                    </div>
 
                     <div class="space-y-4">
                         @foreach($candidato->requisitos->sortBy('tipoRequisito.orden') as $requisito)
@@ -366,5 +375,18 @@
                 </div>
             </div>
         </div>
+
+        {{-- Bloque de Matriculación (solo cuando candidato está completo y tiene empresa) --}}
+        @if($candidato->estatus === 'completo' && $candidato->empresa_id)
+            <div class="mt-8">
+                <div class="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <h2 class="text-xl font-bold text-emerald-800">Matriculacion</h2>
+                    <p class="text-sm text-emerald-700 mt-1">
+                        Todos los requisitos han sido completados. Puedes proceder con la matriculacion de los alumnos.
+                    </p>
+                </div>
+                <livewire:webcurso.matriculacion-panel :candidato="$candidato" />
+            </div>
+        @endif
     </div>
 </div>

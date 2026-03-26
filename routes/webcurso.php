@@ -10,6 +10,8 @@ use App\Livewire\Webcurso\ParticipantesBonificadosIndex;
 use App\Livewire\Webcurso\CandidatosIndex;
 use App\Livewire\Webcurso\CandidatoForm;
 use App\Livewire\Webcurso\CandidatoEstatus;
+use App\Livewire\Webcurso\TutoresIndex;
+use App\Livewire\Webcurso\AccionesFormativasIndex;
 
 
 /*
@@ -45,6 +47,12 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
         // Participantes Bonificados FUNDAE
         Route::get('/participantes-bonificados', ParticipantesBonificadosIndex::class)->name('participantes-bonificados');
         
+        // Tutores
+        Route::get('/tutores', TutoresIndex::class)->name('tutores');
+
+        // Acciones Formativas FUNDAE
+        Route::get('/acciones-formativas', AccionesFormativasIndex::class)->name('acciones-formativas');
+
         // Gestión de candidatos
         Route::prefix('candidatos')->name('candidatos.')->group(function () {
             Route::get('/', CandidatosIndex::class)->name('index');

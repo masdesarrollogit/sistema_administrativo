@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:annotation>
+    <xs:documentation>Esquema XML para la carga masiva de Acciones Formativas.</xs:documentation>
+  </xs:annotation>
+
+  <xs:simpleType name="t_cadena255_vacia">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="255"/>
+      <xs:minLength value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena255">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="255"/>
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena5">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="5"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+      <xs:pattern value="[0-9]{1,5}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena255_llena">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="255"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena_llena">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena55_llena">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="55"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena50_llena">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="50"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena6">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="6"/>
+      <xs:minLength value="1"/>
+      <xs:whiteSpace value="collapse"/>
+      <xs:pattern value="[0-9]{3}[-][0-9]{2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_horas">
+    <xs:restriction base="xs:nonNegativeInteger">
+      <xs:totalDigits value="6"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena4">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="4"/>
+      <xs:minLength value="4"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_cadena9">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="9"/>
+      <xs:minLength value="9"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_modalidadMixta">
+    <xs:sequence>
+      <xs:element name="horasPr" type="t_horas"/>
+      <xs:element name="horasTe" type="t_horas"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_modalidadPresencial">
+    <xs:sequence>
+      <xs:element name="horasPr" type="t_horas"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_modalidadTeleformacion">
+    <xs:sequence>
+      <xs:element name="horasPr" type="t_horas" minOccurs="0"/>
+      <xs:element name="horasTe" type="t_horas"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:simpleType name="t_cif">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="(([a-zA-Z]{1}\d{7}[a-zA-Z0-9]{1})|(\d{8}[a-zA-Z]{1}))"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_SINO">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[BbSsNn]{1}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_fecha">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="(0[1-9]|[12][0-9]|3[01])/(0[1-9]|1[012])/\d{4}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="t_valorinf">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[BbNnFfDd]{1}"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="t_discrepancia">
+    <xs:sequence>
+      <xs:element name="fechaDis" type="t_fecha"/>
+      <xs:element name="resuelto15" type="t_SINO"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_informe">
+    <xs:sequence>
+      <xs:element name="valorinf" type="t_valorinf"/>
+      <xs:element name="discrepancia" type="t_discrepancia" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_rlt">
+    <xs:sequence>
+      <xs:element name="informaRLT" type="t_SINO"/>
+      <xs:element name="informe" type="t_informe" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="t_emp_participante">
+    <xs:sequence>
+      <xs:element name="cif" type="t_cif"/>
+      <xs:element name="infRLT" type="t_rlt" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="AccionesFormativas">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="AccionFormativa" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="codAccion" type="t_cadena5"/>
+              <xs:element name="nombreAccion" type="t_cadena255"/>
+              <xs:element name="codGrupoAccion" type="t_cadena6"/>
+              <xs:element name="codAreaProfesional" type="t_cadena4" minOccurs="0"/>
+              <xs:choice>
+                <xs:element name="modalidadPresencial" type="t_modalidadPresencial"/>
+                <xs:element name="modalidadTeleformacion" type="t_modalidadTeleformacion"/>
+                <xs:element name="modalidadMixta" type="t_modalidadMixta"/>
+              </xs:choice>
+              <xs:element name="cifPlataforma" type="t_cadena9" minOccurs="0"/>
+              <xs:element name="razonSocialPlataforma" type="t_cadena55_llena" minOccurs="0"/>
+              <xs:element name="uri" type="t_cadena255_llena" minOccurs="0"/>
+              <xs:element name="usuario" type="t_cadena50_llena" minOccurs="0"/>
+              <xs:element name="password" type="t_cadena50_llena" minOccurs="0"/>
+              <xs:element name="observaciones" type="xs:string" minOccurs="0"/>
+              <xs:element name="nivelFormacion" type="xs:boolean" minOccurs="0"/>
+              <xs:element name="objetivos" type="t_cadena_llena"/>
+              <xs:element name="contenidos" type="t_cadena_llena"/>
+              <xs:element name="empParticipantes" type="t_emp_participante" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

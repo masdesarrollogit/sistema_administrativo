@@ -97,6 +97,17 @@ return [
             'retry_after' => 60,
         ],
 
+        // Mailer dedicado para emails de credenciales Moodle (info@aula.1curso.com)
+        'moodle' => [
+            'transport'  => env('MOODLE_MAIL_MAILER', 'smtp'),
+            'host'       => env('MOODLE_MAIL_HOST', '127.0.0.1'),
+            'port'       => env('MOODLE_MAIL_PORT', 587),
+            'encryption' => env('MOODLE_MAIL_ENCRYPTION', 'tls'),
+            'username'   => env('MOODLE_MAIL_USERNAME'),
+            'password'   => env('MOODLE_MAIL_PASSWORD'),
+            'timeout'    => null,
+        ],
+
     ],
 
     /*

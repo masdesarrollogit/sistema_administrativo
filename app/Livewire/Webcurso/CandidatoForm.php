@@ -5,7 +5,6 @@ namespace App\Livewire\Webcurso;
 use App\Models\Candidato;
 use App\Models\Empresa;
 use App\Models\EmpresaExterna;
-use App\Models\MoodleCurso;
 use App\Models\TipoCandidato;
 use Livewire\Component;
 
@@ -19,13 +18,7 @@ class CandidatoForm extends Component
     public $nombre_contacto;
     public $email;
     public $telefono;
-    public $curso_nombre;
-    public $curso_referencia;
     public $notas;
-
-    // Autocomplete
-    public $results = [];
-    public $showDropdown = false;
 
     // Para empresas
     public $cif_empresa;
@@ -33,28 +26,6 @@ class CandidatoForm extends Component
     public $buscar_empresa = true;
     public $empresaResults = [];
     public $showEmpresaDropdown = false;
-
-    public function updatedCursoNombre($value)
-    {
-        if (strlen($value) > 2) {
-            $this->results = MoodleCurso::where('titulo', 'like', '%' . $value . '%')
-                ->take(10)
-                ->get();
-            $this->showDropdown = true;
-        } else {
-            $this->showDropdown = false;
-        }
-    }
-
-    public function seleccionarCurso($id)
-    {
-        $curso = MoodleCurso::find($id);
-        if ($curso) {
-            $this->curso_nombre = $curso->titulo;
-            $this->curso_referencia = (string) $curso->horas;
-            $this->showDropdown = false;
-        }
-    }
 
     public function updatedRazonSocialEmpresa($value)
     {
@@ -102,8 +73,6 @@ class CandidatoForm extends Component
             'nombre_contacto' => 'required|string|max:255',
             'email' => 'required|email|max:255',
             'telefono' => 'nullable|string|max:50',
-            'curso_nombre' => 'nullable|string|max:255',
-            'curso_referencia' => 'nullable|max:100',
             'notas' => 'nullable|string',
             'cif_empresa' => 'nullable|string|max:20',
             'razon_social_empresa' => 'nullable|string|max:255',
@@ -120,8 +89,6 @@ class CandidatoForm extends Component
             $this->nombre_contacto = $candidato->nombre_contacto;
             $this->email = $candidato->email;
             $this->telefono = $candidato->telefono;
-            $this->curso_nombre = $candidato->curso_nombre;
-            $this->curso_referencia = $candidato->curso_referencia;
             $this->notas = $candidato->notas;
 
             if ($candidato->empresa) {

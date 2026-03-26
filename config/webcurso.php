@@ -47,4 +47,19 @@ return [
             ],
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Datos del centro de formación (para XML FUNDAE)
+    |--------------------------------------------------------------------------
+    */
+    'centro' => [
+        'cif' => env('WEBCURSO_CENTRO_CIF', 'B65828857'),
+        'nombre' => env('WEBCURSO_CENTRO_NOMBRE', 'MARKETING SOFTWARE 2012'),
+        'direccion' => env('WEBCURSO_CENTRO_DIRECCION', 'CALLE ARIBAU 161, BARCELONA'),
+        'cod_postal' => env('WEBCURSO_CENTRO_CP', '08036'),
+        'localidad' => env('WEBCURSO_CENTRO_LOCALIDAD', 'BARCELONA'),
+        'telefono' => env('WEBCURSO_CENTRO_TELEFONO', '601233530'),
+        'responsable' => env('WEBCURSO_CENTRO_RESPONSABLE', 'Alvaro Pino'),
+    ],
 ];

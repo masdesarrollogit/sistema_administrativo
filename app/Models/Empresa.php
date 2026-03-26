@@ -64,6 +64,14 @@ class Empresa extends Model
     }
 
     /**
+     * Relación con alumnos de la empresa
+     */
+    public function alumnos(): HasMany
+    {
+        return $this->hasMany(Alumno::class, 'empresa_id');
+    }
+
+    /**
      * Scope para empresas PYME
      */
     public function scopePyme($query)
