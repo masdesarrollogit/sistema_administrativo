@@ -128,7 +128,16 @@ class MoodleService
             $params['enrolments[0][timeend]'] = $timeend;
         }
 
-        return $this->call('enrol_manual_enrol_users', $params);
+        try {
+            return $this->call('enrol_manual_enrol_users', $params);
+        } catch (\Exception $e) {
+            // Moodle matricula al alumno pero falla al enviar su notificación interna
+            if (str_contains($e->getMessage(), 'Message was not sent')) {
+                Log::warning("Moodle: matrícula ejecutada pero notificación interna falló (user={$userId}, course={$courseId}): {$e->getMessage()}");
+                return [];
+            }
+            throw $e;
+        }
     }
 
     /**
