@@ -187,8 +187,6 @@ class CandidatoForm extends Component
                 'nombre_contacto' => $this->nombre_contacto,
                 'email' => $this->email,
                 'telefono' => $this->telefono,
-                'curso_nombre' => $this->curso_nombre,
-                'curso_referencia' => $this->curso_referencia,
                 'notas' => $this->notas,
             ];
 

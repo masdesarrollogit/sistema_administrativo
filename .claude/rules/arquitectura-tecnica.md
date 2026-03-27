@@ -267,6 +267,16 @@ composer test                    # Ejecuta tests Pest con SQLite in-memory
 - `public_url` — URL publica para enlaces en emails al alumno (env: MOODLE_PUBLIC_URL, default: `https://aula.1curso.com`)
 - `mail_from` — remitente emails de credenciales (env: MOODLE_MAIL_FROM, default: `info@aula.1curso.com`)
 
+### config/mail.php — mailer dedicado Moodle
+Mailer `moodle` separado del mailer general (`smtp` con Gmail). Usado exclusivamente por `CredencialesMoodleMail`:
+- `MOODLE_MAIL_MAILER` — smtp
+- `MOODLE_MAIL_HOST` — servidor SMTP de aula.1curso.com (ej: `vp40.espaciowww.net`)
+- `MOODLE_MAIL_PORT` — 587
+- `MOODLE_MAIL_USERNAME` — `info@aula.1curso.com`
+- `MOODLE_MAIL_PASSWORD` — contrasena SMTP
+- `MOODLE_MAIL_ENCRYPTION` — tls
+- En produccion: `MOODLE_HOST_OVERRIDE` NO es necesaria (Moodle esta en servidor separado con URL publica)
+
 ## Testing
 - Framework: **Pest**
 - Base de datos: SQLite in-memory (phpunit.xml)

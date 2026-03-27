@@ -5,9 +5,9 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
 ## Modulos completados
 
 ### Gestion de candidatos
-- **CandidatosIndex**: listado paginado (15/pagina), busqueda por nombre/email/telefono/razon_social de empresa, filtros por tipo y estatus. Oculta desactivados y cancelados por defecto
-- **CandidatoForm**: crear/editar candidato. Autocompletado de curso (busca en MoodleCurso) y empresa (busca segun tipo). Auto-crea empresa si no existe (firstOrCreate)
-- **CandidatoEstatus**: gestion detallada — requisitos, archivos adjuntos, configuracion de recordatorios, pausar/reactivar/desactivar
+- **CandidatosIndex**: listado paginado (15/pagina), busqueda por nombre/email/telefono/razon_social de empresa, filtros por tipo y estatus. Oculta desactivados y cancelados por defecto. Boton eliminar candidato (elimina requisitos y archivos adjuntos asociados)
+- **CandidatoForm**: crear/editar candidato. Autocompletado de empresa segun tipo. Auto-crea empresa si no existe (firstOrCreate). **Campo "nombre de curso" eliminado** — ya no existe en el formulario
+- **CandidatoEstatus**: gestion detallada — requisitos, archivos adjuntos, configuracion de recordatorios, pausar/reactivar/desactivar. Boton **"Completar todos"** para marcar todos los requisitos pendientes de una vez
 - Estados del candidato: `pendiente`, `completo`, `cancelado`, `pausado`, `desactivado`
 
 ### Sistema de requisitos
@@ -81,7 +81,7 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
 - **FundaeXmlService**: genera 3 tipos de XML (Acciones Formativas, Inicio Grupo, Finalizacion Grupo)
 - Esquemas XSD y ejemplos en `storage/fundae/`
 
-### Integracion Moodle API (funcional desde 2026-03-21)
+### Integracion Moodle API (funcional desde 2026-03-21, actualizado 2026-03-26)
 - **MoodleService**: completamente funcional. Ver `api-moodle.md` para referencia completa
 - URL interna Docker: `http://moodle_app` con header `Host: localhost:8080`
 - URL publica para alumnos: configurada en `MOODLE_PUBLIC_URL` (ej: `https://aula.1curso.com`)
@@ -90,46 +90,59 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
   - **Username**: email del alumno
   - **Password**: `ucfirst(nombre) + '4444*'` (ej: `Ana4444*`, `Carlos4444*`)
 - Si el usuario ya existe en Moodle: se actualiza la contrasena y se rematricula
-- Email de credenciales: desde `info@aula.1curso.com`, CC a `tutorias@webcurso.es`
+- Email de credenciales: mailer dedicado `moodle` (SMTP de `info@aula.1curso.com`), CC a `tutorias@webcurso.es`
   - Incluye: usuario, contrasena, URL completa del curso (`/course/view.php?id=X`), fechas inicio/fin, parrafo de bonificacion
+  - Remitente separado del correo general (recordatorios/saldos siguen saliendo por `saldoswebcurso@gmail.com`)
+- **Timestamps en timezone Europe/Madrid**: fechas de inicio/fin se calculan en Madrid para que Moodle las muestre correctamente
 
-### Matriculacion (desarrollado 2026-03-15, mejorado 2026-03-21)
+### Matriculacion (desarrollado 2026-03-15, mejorado 2026-03-26)
 - **GrupoFormativo**: entidad central. Vincula candidato, accion formativa, tutor, empresa, tramo, fechas
 - **Alumnos**: asociados a empresa, reutilizables entre grupos (fidelizacion). NIF globalmente unico. Email obligatorio y globalmente unico
 - **MatriculacionPanel**: componente Livewire anidado en CandidatoEstatus (cuando estatus=completo)
 
 #### Flujo completo por plataforma:
 **Plataforma Moodle (codigo 'm'):**
-1. Crear grupo formativo (id_grupo_fundae se asigna automaticamente al crear)
-2. Agregar alumnos al grupo (selector muestra email, valida solapamiento de fechas)
-3. Generar XML de Inicio de Grupo (descarga directa)
+1. Crear grupo formativo (id_grupo_fundae se asigna automaticamente al crear). Campo **Dias** calcula fecha_fin automaticamente desde fecha_inicio
+2. Agregar alumnos al grupo:
+   - **Alumnos fidelizados**: lista de alumnos ya registrados en la empresa → boton "+ Añadir" (sin reingresar datos)
+   - **Nuevo alumno individual**: formulario manual con validacion de NIF y email unicos
+   - **Subida masiva**: importa la Ficha de Inscripcion Excel de WebCurso (cabecera en fila 10, columnas C/D/J/K/L/M/N/O/P/Q). Extrae: nombre, apellidos, telefono, email, fecha_nacimiento, NIF, NISS, grupo_cotizacion_tgss, nivel_estudios, categoria_profesional
+3. Generar XML de Inicio de Grupo (solo activo cuando hay alumnos)
 4. Subir XML a FUNDAE (manual)
-5. Matricular en Moodle: autodetecta el aula por el moodle_username del tutor → crea grupo Moodle `{accion}/{grupo}` → crea/actualiza usuarios → matricula con fechas inicio/fin → envia email con credenciales
+5. Subir PDF de notificacion FUNDAE (solo activo cuando hay alumnos): valida que corresponde al grupo y marca como `comunicado`
+6. Matricular en Moodle: autodetecta el aula → crea grupo Moodle → crea/actualiza usuarios → matricula con fechas → envia email credenciales
+7. Grupo pasa a `en_curso` **solo cuando TODOS los alumnos** tienen `estado_moodle = matriculado`
 
 **Plataforma Aulasystem (codigo 'a', www.plataformateleformacion.com):**
-1. Crear grupo formativo
-2. Agregar alumnos
-3. Generar XML de Inicio de Grupo
-4. Subir XML a FUNDAE (manual)
-5. Botón "Matriculado en Aulasystem" — marca todos los alumnos con `estado_moodle='aulasystem'` y el grupo pasa a `en_curso`. No hay API disponible para esta plataforma
+1-4. Igual que Moodle
+5. Boton "Matriculado en Aulasystem" — marca todos con `estado_moodle='aulasystem'` → grupo pasa a `en_curso`
 
 #### Reglas de negocio:
-- Un alumno NO puede estar en dos grupos cuyas fechas se solapan (validacion por rango de fechas, no bloqueante si son consecutivos)
+- Un alumno NO puede estar en dos grupos cuyas fechas se solapan
 - Un grupo permanece abierto hasta 2 dias antes de la fecha de inicio
 - Limite FUNDAE: 80 alumnos por tutor por tramo
-- id_grupo_fundae se asigna automaticamente al crear el grupo (no requiere boton manual)
-- Autodeteccion del aula Moodle: si el tutor tiene moodle_username y hay un solo curso vinculado activo donde el tutor esta matriculado, se usa directamente. Si hay varios, se muestra selector
+- id_grupo_fundae se asigna automaticamente al crear el grupo
+- Autodeteccion del aula Moodle: por moodle_username del tutor. Si hay varios cursos, selector manual
+- El grupo solo pasa a `en_curso` cuando todos los alumnos estan matriculados (no parcialmente)
+- Email de alumno: unico globalmente. Si ya existe en la BD se muestra error claro (no se permite duplicar)
+- Alumnos fidelizados: al seleccionar un grupo, se muestran los alumnos de la empresa que aun no estan en ese grupo
 
 #### Edicion:
-- Grupos `abierto`: se puede editar (tutor, tramo, fechas, jornada, descripcion), eliminar el grupo, editar datos de alumnos
-- Grupos `en_curso`: solo se pueden editar datos de alumnos
+- Grupos `abierto`: editar datos del grupo, eliminar, editar/quitar alumnos, agregar nuevos
+- Grupos `comunicado` y `en_curso`: boton Gestionar disponible para agregar alumnos adicionales y editar datos de alumnos
+- Campo **Dias**: al escribir el numero de dias y tener fecha_inicio, calcula fecha_fin automaticamente (`fecha_inicio + dias`)
+
+#### Flujo de comunicacion a FUNDAE (secuencia obligatoria):
+1. XML Inicio → activo solo cuando hay alumnos en el grupo
+2. PDF FUNDAE → activo solo cuando hay alumnos (mismo requisito que XML)
+3. Al validar el PDF → grupo pasa a `comunicado` automaticamente
+4. No hay boton "Marcar comunicado" manual — el PDF es el unico camino (excepto grupos ya existentes en tabla importada)
 
 #### Autocomplete de accion formativa:
 - Muestra badge "Moodle" (azul) o "Aulasystem" (ambar) junto a cada resultado
 
 #### Estados Moodle del alumno en pivot `grupo_formativo_alumno`:
 - `pendiente` — no procesado
-- `creado` — usuario creado en Moodle
 - `matriculado` — matriculado en Moodle
 - `aulasystem` — matriculado en plataforma externa (marcado manualmente)
 - `error` — fallo en el proceso
@@ -156,8 +169,7 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
 2. **Integracion Zoho CRM** — sincronizacion de candidatos
 3. **Facturacion** — Zoho Books (iniciar con mocks)
 4. **Cierre de expediente FUNDAE** (Fase 7)
-5. **Importacion de alumnos via XLSX** — plantilla que se envia al candidato
-6. **Reorganizacion de categorias Moodle** — Activos/tutor, Repasos, Desactualizados, Plantillas
+5. **Reorganizacion de categorias Moodle** — Activos/tutor, Repasos, Desactualizados, Plantillas
 
 ---
 
@@ -167,15 +179,19 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
 - Tramo horario pertenece al grupo, no al tutor
 - Un alumno no puede estar en dos grupos con fechas solapadas (validacion por rango, no por estado general)
 - id_grupo_fundae secuencial por accion formativa, asignado automaticamente al crear el grupo
-- Lista de alumnos: ingreso manual (XLSX pendiente)
+- Importacion masiva de alumnos: Ficha de Inscripcion Excel de WebCurso (formato fijo, cabecera fila 10)
 - Notificacion al alumno: email con credenciales Moodle auto-generadas
 - Patron credenciales Moodle: username=email del alumno, password=ucfirst(nombre)+'4444*'
-- Email de credenciales: desde info@aula.1curso.com, CC tutorias@webcurso.es
+- Email de credenciales: mailer SMTP dedicado (info@aula.1curso.com), CC tutorias@webcurso.es. Separado del mailer general (saldoswebcurso@gmail.com)
+- Timestamps Moodle: calculados en Europe/Madrid para que las fechas se muestren correctamente en Moodle
+- Estado `en_curso`: solo cuando TODOS los alumnos del grupo tienen estado_moodle matriculado o aulasystem
+- PDF FUNDAE como unico mecanismo para marcar grupo como `comunicado` (no hay boton manual)
+- Alumnos fidelizados: visibles en el panel de gestion por empresa, agregables con un clic
 - Plataforma aulasystem (codigo 'a'): sin API disponible, matriculacion se marca manualmente desde el Panel
 - Vinculacion AccionFormativa↔Moodle: sin tutor en el pivot (el tutor va en el grupo, no en la accion)
 - Facturacion: iniciar con MockFacturacionService
+- Campo "nombre de curso" eliminado del formulario de candidato (era redundante con la accion formativa del grupo)
 
 ## Decisiones de diseno pendientes
 
-- Estructura exacta de la plantilla XLSX de alumnos
 - Reorganizacion de categorias en Moodle (Activos/tutor, Repasos, Desactualizados, Plantillas)
