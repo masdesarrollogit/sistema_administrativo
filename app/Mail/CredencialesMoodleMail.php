@@ -38,7 +38,7 @@ class CredencialesMoodleMail extends Mailable
                 'WebCurso'
             ),
             subject: "Credenciales de acceso - {$curso} - WebCurso",
-            cc: [new Address('tutorias@webcurso.es', 'Tutorías WebCurso')],
+            cc: [new Address('administracion@webcurso.es', 'Administración WebCurso')],
         );
     }
 
