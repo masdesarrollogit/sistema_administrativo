@@ -72,6 +72,12 @@
                     <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
                     <span x-show="open" class="ml-4 whitespace-nowrap">Tutores</span>
                 </a>
+
+                <a href="{{ route('webcurso.alumnos') }}" wire:navigate
+                   class="flex items-center px-6 py-3 text-indigo-100 hover:bg-indigo-800 dark:hover:bg-gray-700 transition-colors group {{ request()->routeIs('webcurso.alumnos') ? 'bg-indigo-800 dark:bg-gray-700' : '' }}">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <span x-show="open" class="ml-4 whitespace-nowrap">Alumnos</span>
+                </a>
             @endhasanyrole
 
             <div class="border-t border-indigo-800 dark:border-gray-700 my-2"></div>

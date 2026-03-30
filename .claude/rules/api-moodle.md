@@ -81,6 +81,7 @@ $moodle->enrolInCourse(
 ```
 - Matricula con fechas de inicio y fin configuradas en Moodle
 - Se usa tambien para reactivar la matricula del tutor (suspend=0, timeend=fecha_fin del grupo)
+- **Manejo de error "Message was not sent"**: Moodle puede fallar al enviar su notificacion interna de bienvenida aunque la matricula se ejecute. `enrolInCourse` captura este error especifico y lo loguea como warning sin interrumpir el flujo
 
 ### core_enrol_get_users_courses — Cursos donde esta matriculado un usuario
 ```php
@@ -141,8 +142,9 @@ Implementado en `GrupoFormativo::ejecutarEnMoodle(int $moodleCourseId)`:
 
 ## Email de credenciales al alumno (`CredencialesMoodleMail`)
 
-- **From**: `info@aula.1curso.com` (configurable via `MOODLE_MAIL_FROM`)
-- **CC**: `tutorias@webcurso.es`
+- **From**: `tutorias@webcurso.es` (configurable via `MOODLE_MAIL_FROM`, enviado como alias de `saldoswebcurso@gmail.com`)
+- **CC**: `administracion@webcurso.es`
+- **Mailer**: dedicado `moodle` en `config/mail.php` (SMTP Gmail con alias)
 - **Contenido**: nombre del alumno, username, password, URL completa del curso (`{public_url}/course/view.php?id={courseId}`), fechas de inicio y fin, parrafo de bonificacion, contacto soporte (`administracion@webcurso.es`)
 
 ## Patron de credenciales

@@ -90,9 +90,9 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
   - **Username**: email del alumno
   - **Password**: `ucfirst(nombre) + '4444*'` (ej: `Ana4444*`, `Carlos4444*`)
 - Si el usuario ya existe en Moodle: se actualiza la contrasena y se rematricula
-- Email de credenciales: mailer dedicado `moodle` (SMTP de `info@aula.1curso.com`), CC a `tutorias@webcurso.es`
+- Email de credenciales: mailer dedicado `moodle` (SMTP de `saldoswebcurso@gmail.com` con alias `tutorias@webcurso.es`), CC a `administracion@webcurso.es`
   - Incluye: usuario, contrasena, URL completa del curso (`/course/view.php?id=X`), fechas inicio/fin, parrafo de bonificacion
-  - Remitente separado del correo general (recordatorios/saldos siguen saliendo por `saldoswebcurso@gmail.com`)
+  - Remitente: `tutorias@webcurso.es` (configurado como alias "Enviar como" en Gmail de `saldoswebcurso@gmail.com`)
 - **Timestamps en timezone Europe/Madrid**: fechas de inicio/fin se calculan en Madrid para que Moodle las muestre correctamente
 
 ### Matriculacion (desarrollado 2026-03-15, mejorado 2026-03-26)
@@ -182,7 +182,8 @@ Snapshot del estado de desarrollo. Ultima actualizacion: marzo 2026.
 - Importacion masiva de alumnos: Ficha de Inscripcion Excel de WebCurso (formato fijo, cabecera fila 10)
 - Notificacion al alumno: email con credenciales Moodle auto-generadas
 - Patron credenciales Moodle: username=email del alumno, password=ucfirst(nombre)+'4444*'
-- Email de credenciales: mailer SMTP dedicado (info@aula.1curso.com), CC tutorias@webcurso.es. Separado del mailer general (saldoswebcurso@gmail.com)
+- Email de credenciales: mailer dedicado `moodle` (Gmail con alias `tutorias@webcurso.es`), CC `administracion@webcurso.es`
+- MoodleService: error "Message was not sent" de Moodle se maneja como warning sin interrumpir la matricula
 - Timestamps Moodle: calculados en Europe/Madrid para que las fechas se muestren correctamente en Moodle
 - Estado `en_curso`: solo cuando TODOS los alumnos del grupo tienen estado_moodle matriculado o aulasystem
 - PDF FUNDAE como unico mecanismo para marcar grupo como `comunicado` (no hay boton manual)

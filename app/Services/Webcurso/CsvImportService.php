@@ -421,14 +421,30 @@ class CsvImportService
     }
 
     /**
-     * Convertir cantidad monetaria
+     * Convertir cantidad monetaria.
+     * Soporta formato español (1.234,56) y formato internacional/Excel (469.51).
      */
     protected function convertirCantidad(string $cantidad): float
     {
         if (empty($cantidad) || $cantidad === '0') {
             return 0;
         }
-        $cantidad = str_replace(['.', ','], ['', '.'], $cantidad);
+
+        // Limpiar símbolo de moneda y espacios
+        $cantidad = trim(str_replace(['€', "\xC2\xA0", ' '], '', $cantidad));
+
+        $tienePunto = strpos($cantidad, '.') !== false;
+        $tieneComa  = strpos($cantidad, ',') !== false;
+
+        if ($tienePunto && $tieneComa) {
+            // Formato español completo: 1.234,56 → quitar puntos de miles, coma→punto
+            $cantidad = str_replace(['.', ','], ['', '.'], $cantidad);
+        } elseif ($tieneComa && !$tienePunto) {
+            // Formato español sin miles: 469,51 → coma→punto
+            $cantidad = str_replace(',', '.', $cantidad);
+        }
+        // Si solo tiene punto (469.51) → ya está en formato correcto (Excel)
+
         return (float) $cantidad;
     }
 

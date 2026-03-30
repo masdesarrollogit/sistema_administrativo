@@ -270,11 +270,13 @@ composer test                    # Ejecuta tests Pest con SQLite in-memory
 ### config/mail.php — mailer dedicado Moodle
 Mailer `moodle` separado del mailer general (`smtp` con Gmail). Usado exclusivamente por `CredencialesMoodleMail`:
 - `MOODLE_MAIL_MAILER` — smtp
-- `MOODLE_MAIL_HOST` — servidor SMTP de aula.1curso.com (ej: `vp40.espaciowww.net`)
+- `MOODLE_MAIL_HOST` — `smtp.gmail.com` (mismo SMTP que el mailer general)
 - `MOODLE_MAIL_PORT` — 587
-- `MOODLE_MAIL_USERNAME` — `info@aula.1curso.com`
-- `MOODLE_MAIL_PASSWORD` — contrasena SMTP
+- `MOODLE_MAIL_USERNAME` — `saldoswebcurso@gmail.com`
+- `MOODLE_MAIL_PASSWORD` — app password de Gmail
 - `MOODLE_MAIL_ENCRYPTION` — tls
+- `MOODLE_MAIL_FROM` — `tutorias@webcurso.es` (alias "Enviar como" en Gmail)
+- CC: `administracion@webcurso.es`
 - En produccion: `MOODLE_HOST_OVERRIDE` NO es necesaria (Moodle esta en servidor separado con URL publica)
 
 ## Testing

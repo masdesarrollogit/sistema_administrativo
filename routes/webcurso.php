@@ -12,6 +12,7 @@ use App\Livewire\Webcurso\CandidatoForm;
 use App\Livewire\Webcurso\CandidatoEstatus;
 use App\Livewire\Webcurso\TutoresIndex;
 use App\Livewire\Webcurso\AccionesFormativasIndex;
+use App\Livewire\Webcurso\AlumnosIndex;
 
 
 /*
@@ -49,6 +50,9 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
         
         // Tutores
         Route::get('/tutores', TutoresIndex::class)->name('tutores');
+
+        // Alumnos
+        Route::get('/alumnos', AlumnosIndex::class)->name('alumnos');
 
         // Acciones Formativas FUNDAE
         Route::get('/acciones-formativas', AccionesFormativasIndex::class)->name('acciones-formativas');
