@@ -11,7 +11,9 @@ Candidato
 ├── hasMany RequisitoCandidato
 │   └── belongsTo TipoRequisito
 ├── hasMany NotificacionLog
-└── hasMany CandidatoArchivo
+├── hasMany CandidatoArchivo
+├── hasMany GrupoFormativo (grupos bonificados FUNDAE)
+└── hasMany MatriculaAutonoma (matriculas autonomas 2x1)
 ```
 
 ### Entidades de empresa
@@ -39,7 +41,8 @@ La tabla del Panel debe sincronizarse con la DB real de Moodle, no con el CSV.
 
 ### Entidades FUNDAE
 ```
-ParticipanteBonificado (sin relaciones, datos importados de XLS)
+ParticipanteBonificado (datos importados de XLS FUNDAE)
+├── hasMany inversa desde Alumno (por nif_participante ↔ alumnos.nif)
 AccionFormativa (importada de AccionesFormativas.xls, UPSERT por numero_accion)
 ├── codigo_plataforma: 'm' = aula.1curso.com (Moodle), 'a' = plataformateleformacion.com (Aulasystem)
 ├── hasMany AccionFormativaMoodleCurso (pivot 1:N con cursos Moodle)
@@ -69,9 +72,11 @@ Tutor
 Alumno
 ├── belongsTo Empresa
 ├── belongsToMany GrupoFormativo (via grupo_formativo_alumno)
+├── hasMany MatriculaAutonoma — matriculas autonomas 2x1 del alumno
+├── hasMany ParticipanteBonificado (por nif_participante ↔ nif) — participaciones FUNDAE importadas
 ├── datos FUNDAE: NIF, NISS, CCC, grupo cotizacion, fecha_nacimiento, sexo, etc.
-├── NIF: globalmente unico (unique:alumnos,nif)
-├── email: obligatorio y globalmente unico (unique:alumnos,email)
+├── NIF: unico por empresa (unique:alumnos,nif,empresa_id)
+├── email: nullable, unico globalmente cuando presente
 ├── metodo: tieneGrupoActivoEnPeriodo(?fechaInicio, ?fechaFin, ?excluirGrupoId)
 │   └── valida solapamiento de fechas, NO bloquea grupos consecutivos de la misma accion
 ├── metodo: tieneGrupoActivo() — deprecated, llama a tieneGrupoActivoEnPeriodo sin fechas
@@ -93,6 +98,23 @@ GrupoFormativo (entidad central de matriculacion)
 ├── metodo: estaAbierto() — hasta 2 dias antes del inicio
 ├── metodo: ejecutarEnMoodle(courseId) — flujo completo: grupo Moodle, reactivar tutor, crear/actualizar usuarios, matricular con fechas, enviar emails
 ├── metodo: asignarIdGrupoFundae() — secuencial consultando ambas tablas
+```
+
+### Entidades de autonomos (desarrollado 2026-03-30)
+```
+MatriculaAutonoma (matricula individual sin grupo FUNDAE — oferta 2x1)
+├── belongsTo Candidato — contexto del candidato que trajo al autonomo
+├── belongsTo Alumno — el alumno autonomo
+├── belongsTo AccionFormativa — que curso
+├── belongsTo Tutor — tutor asignado
+├── belongsTo Empresa — empresa del autonomo
+├── fecha_inicio (nullable), fecha_fin (nullable) — sin restriccion FUNDAE
+├── moodle_course_id, moodle_user_id, moodle_username — datos de matricula Moodle
+├── estado: enum('pendiente','matriculado','error')
+├── intentos_moodle, ultimo_error_moodle — tracking de errores
+├── metodo: ejecutarEnMoodle(courseId) — matricula individual: crear/actualizar usuario, matricular, enviar email
+├── NO tiene: id_grupo_fundae, moodle_group_id, tramo_horario, jornada_laboral
+└── NO genera XML ni requiere PDF FUNDAE
 ```
 
 ### Autenticacion

@@ -25,8 +25,59 @@
         <div class="bg-green-50 rounded-xl p-4 mb-6 text-center border border-green-100">
             <span class="text-lg">
                 👤 <strong>Total participantes:</strong> {{ number_format($stats['total']) }} &nbsp;|&nbsp;
-                🏢 <strong>Empresas únicas (CIF):</strong> {{ number_format($stats['cif_unicos']) }}
+                🏢 <strong>Empresas únicas (CIF):</strong> {{ number_format($stats['cif_unicos']) }} &nbsp;|&nbsp;
+                ✅ <strong>Finalizados:</strong> {{ number_format($stats['finalizados']) }} &nbsp;|&nbsp;
+                🚫 <strong>Excluidos email:</strong> {{ number_format($stats['excluidos']) }}
             </span>
+        </div>
+
+        {{-- Panel de email mensual de saldo --}}
+        <div class="bg-white rounded-xl shadow-sm p-4 mb-6 border border-blue-100">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                        📧 Email mensual de saldo
+                        @if($cronActivo)
+                            <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700">Activo</span>
+                        @else
+                            <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700">Inactivo</span>
+                        @endif
+                        <span class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700">
+                            {{ $cronFrecuencia === 'weekly' ? 'Semanal' : ($cronFrecuencia === 'biweekly' ? 'Quincenal' : 'Mensual') }}
+                        </span>
+                    </h3>
+                    <p class="text-xs text-gray-500 mt-1">
+                        Envía el saldo de la empresa a cada participante bonificado finalizado que tenga email en la tabla de alumnos.
+                        CC: administracion@webcurso.es, webcurso@webcurso.es
+                    </p>
+                </div>
+                <div class="flex gap-2">
+                    <button wire:click="enviarEmailSaldoPrueba"
+                            wire:loading.attr="disabled"
+                            wire:loading.class="opacity-50 cursor-not-allowed"
+                            wire:target="enviarEmailSaldoPrueba"
+                            class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm transition-colors">
+                        <span wire:loading.remove wire:target="enviarEmailSaldoPrueba">🔍 Prueba (dry-run)</span>
+                        <span wire:loading wire:target="enviarEmailSaldoPrueba" style="display:none">Ejecutando...</span>
+                    </button>
+                    <button wire:click="enviarEmailSaldoMasivo"
+                            wire:loading.attr="disabled"
+                            wire:loading.class="opacity-50 cursor-not-allowed"
+                            wire:target="enviarEmailSaldoMasivo"
+                            wire:confirm="¿Enviar emails de saldo a todos los participantes bonificados finalizados?"
+                            class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm transition-colors">
+                        <span wire:loading.remove wire:target="enviarEmailSaldoMasivo">📧 Enviar ahora</span>
+                        <span wire:loading wire:target="enviarEmailSaldoMasivo" style="display:none">Enviando...</span>
+                    </button>
+                </div>
+            </div>
+
+            @if($resultadoEnvioMasivo)
+                <div class="mt-4 p-3 rounded-lg text-xs font-mono whitespace-pre-wrap max-h-48 overflow-y-auto
+                    {{ str_contains($resultadoEnvioMasivo, '❌') ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-gray-50 text-gray-700 border border-gray-200' }}">
+                    {{ $resultadoEnvioMasivo }}
+                </div>
+            @endif
         </div>
 
         {{-- Filtros --}}
@@ -112,6 +163,8 @@
                             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Inicio</th>
                             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Fin</th>
                             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Grupo</th>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Email</th>
+                            <th class="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-blue-50">Envío</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
@@ -158,10 +211,35 @@
                                         {{ $p->estado_grupo === 'Modificado' ? 'text-orange-500' : '' }}
                                     ">{{ $p->estado_grupo }}</span>
                                 </td>
+                                <td class="px-3 py-2 whitespace-nowrap bg-blue-50 text-xs">
+                                    @if(isset($emailsPorNif[$p->nif_participante]))
+                                        <span class="text-gray-700">{{ $emailsPorNif[$p->nif_participante] }}</span>
+                                    @else
+                                        <span class="text-gray-400 italic">Sin email</span>
+                                    @endif
+                                </td>
+                                <td class="px-3 py-2 whitespace-nowrap bg-blue-50 text-center">
+                                    @if($p->nif_participante)
+                                        @if(in_array($p->nif_participante, $nifsExcluidos))
+                                            <button wire:click="reactivarParticipante('{{ $p->nif_participante }}')"
+                                                    class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                                                    title="Reactivar envío de email">
+                                                🚫 Excluido
+                                            </button>
+                                        @else
+                                            <button wire:click="excluirParticipante('{{ $p->nif_participante }}', '{{ addslashes($p->nombre) }}')"
+                                                    wire:confirm="¿Excluir a {{ $p->nombre }} del envío de emails de saldo?"
+                                                    class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                                                    title="Detener envío de email a este participante">
+                                                ✅ Activo
+                                            </button>
+                                        @endif
+                                    @endif
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="11" class="px-4 py-12 text-center text-gray-500">
+                                <td colspan="13" class="px-4 py-12 text-center text-gray-500">
                                     <div class="text-4xl mb-3">💰</div>
                                     <p class="font-semibold">No hay participantes bonificados cargados</p>
                                     <p class="text-sm mt-1">

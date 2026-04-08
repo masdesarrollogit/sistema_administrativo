@@ -14,6 +14,7 @@ class AlumnosIndex extends Component
     public string $search = '';
     public string $filtroEmpresa = '';
     public string $filtroActivo = '1';
+    public string $filtroTipo = '';
 
     // Modal edición
     public bool $mostrarModalEditar = false;
@@ -42,6 +43,7 @@ class AlumnosIndex extends Component
         'search'        => ['except' => ''],
         'filtroEmpresa' => ['except' => ''],
         'filtroActivo'  => ['except' => '1'],
+        'filtroTipo'    => ['except' => ''],
     ];
 
     protected function rules(): array
@@ -89,9 +91,14 @@ class AlumnosIndex extends Component
         $this->resetPage();
     }
 
+    public function updatingFiltroTipo(): void
+    {
+        $this->resetPage();
+    }
+
     public function limpiarFiltros(): void
     {
-        $this->reset(['search', 'filtroEmpresa']);
+        $this->reset(['search', 'filtroEmpresa', 'filtroTipo']);
         $this->filtroActivo = '1';
         $this->resetPage();
     }
@@ -182,6 +189,8 @@ class AlumnosIndex extends Component
                 'gruposFormativos as grupos_total',
                 'gruposFormativos as grupos_activos' => fn ($q) =>
                     $q->whereIn('estado', ['abierto', 'comunicado', 'en_curso']),
+                'matriculasAutonomas as autonomos_total',
+                'participantesBonificados as bonificados_total',
             ]);
 
         if ($this->search) {
@@ -205,24 +214,47 @@ class AlumnosIndex extends Component
             $query->where('activo', (bool) $this->filtroActivo);
         }
 
+        if ($this->filtroTipo === 'autonomo') {
+            $query->whereHas('matriculasAutonomas');
+        } elseif ($this->filtroTipo === 'fundae') {
+            $query->where(function ($q) {
+                $q->whereHas('gruposFormativos')
+                  ->orWhereHas('participantesBonificados');
+            });
+        }
+
         $alumnos = $query
             ->orderBy('apellido1')
             ->orderBy('nombre')
             ->paginate(25);
 
         $gruposDelAlumno = null;
+        $autonomosDelAlumno = null;
+        $bonificadosDelAlumno = null;
         if ($this->mostrarModalGrupos && $this->alumnoGruposId) {
-            $gruposDelAlumno = Alumno::findOrFail($this->alumnoGruposId)
+            $alumnoModal = Alumno::findOrFail($this->alumnoGruposId);
+            $gruposDelAlumno = $alumnoModal
                 ->gruposFormativos()
                 ->with(['accionFormativa', 'empresa'])
                 ->withPivot(['moodle_username', 'estado_moodle'])
                 ->orderByDesc('fecha_inicio')
                 ->get();
+            $autonomosDelAlumno = $alumnoModal
+                ->matriculasAutonomas()
+                ->with(['accionFormativa', 'tutor'])
+                ->orderByDesc('fecha_inicio')
+                ->get();
+            $bonificadosDelAlumno = $alumnoModal
+                ->participantesBonificados()
+                ->orderByDesc('fecha_inicio')
+                ->get();
         }
 
         return view('livewire.webcurso.alumnos-index', [
-            'alumnos'         => $alumnos,
-            'gruposDelAlumno' => $gruposDelAlumno,
+            'alumnos'               => $alumnos,
+            'gruposDelAlumno'       => $gruposDelAlumno,
+            'autonomosDelAlumno'    => $autonomosDelAlumno,
+            'bonificadosDelAlumno'  => $bonificadosDelAlumno,
         ])->layout('layouts.app', ['title' => 'Alumnos - WebCurso']);
     }
 }

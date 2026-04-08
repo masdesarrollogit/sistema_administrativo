@@ -14,7 +14,7 @@
 
         {{-- Filtros --}}
         <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-xs font-medium text-gray-700 mb-1">Buscar</label>
                     <input type="text" wire:model.live.debounce.300ms="search"
@@ -34,6 +34,15 @@
                         <option value="1">Activos</option>
                         <option value="0">Inactivos</option>
                         <option value="">Todos</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Tipo</label>
+                    <select wire:model.live="filtroTipo"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="">Todos</option>
+                        <option value="fundae">Con grupos FUNDAE</option>
+                        <option value="autonomo">Autónomos (2x1)</option>
                     </select>
                 </div>
                 <div class="flex items-end">
@@ -60,9 +69,17 @@
                     @forelse($alumnos as $alumno)
                         <tr class="hover:bg-gray-50">
                             <td class="px-6 py-4">
-                                <div class="text-sm font-medium text-gray-900">{{ $alumno->nombre_completo }}</div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-sm font-medium text-gray-900">{{ $alumno->nombre_completo }}</span>
+                                    @if($alumno->autonomos_total > 0)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200"
+                                              title="{{ $alumno->autonomos_total }} matrícula{{ $alumno->autonomos_total > 1 ? 's' : '' }} autónoma{{ $alumno->autonomos_total > 1 ? 's' : '' }}">
+                                            2x1
+                                        </span>
+                                    @endif
+                                </div>
                                 @if($alumno->telefono)
-                                    <div class="text-xs text-gray-500">{{ $alumno->telefono }}</div>
+                                    <div class="text-xs text-gray-500 mt-0.5">{{ $alumno->telefono }}</div>
                                 @endif
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-700">{{ $alumno->nif }}</td>
@@ -74,12 +91,30 @@
                                 @endif
                             </td>
                             <td class="px-6 py-4">
-                                @if($alumno->grupos_activos > 0)
-                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                                        {{ $alumno->grupos_activos }} activo{{ $alumno->grupos_activos > 1 ? 's' : '' }}
-                                    </span>
-                                @endif
-                                <span class="text-xs text-gray-500 ml-1">{{ $alumno->grupos_total }} total</span>
+                                <div class="flex flex-wrap gap-1 items-center">
+                                    @if($alumno->grupos_total > 0)
+                                        @if($alumno->grupos_activos > 0)
+                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                                                {{ $alumno->grupos_activos }} activo{{ $alumno->grupos_activos > 1 ? 's' : '' }}
+                                            </span>
+                                        @endif
+                                        <span class="text-xs text-gray-500">{{ $alumno->grupos_total }} FUNDAE</span>
+                                    @endif
+                                    @if($alumno->bonificados_total > 0 && $alumno->grupos_total == 0)
+                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800"
+                                              title="Participaciones importadas de FUNDAE">
+                                            {{ $alumno->bonificados_total }} FUNDAE
+                                        </span>
+                                    @endif
+                                    @if($alumno->autonomos_total > 0)
+                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
+                                            {{ $alumno->autonomos_total }} autónomo{{ $alumno->autonomos_total > 1 ? 's' : '' }}
+                                        </span>
+                                    @endif
+                                    @if($alumno->grupos_total == 0 && $alumno->bonificados_total == 0 && $alumno->autonomos_total == 0)
+                                        <span class="text-xs text-gray-400">—</span>
+                                    @endif
+                                </div>
                             </td>
                             <td class="px-6 py-4">
                                 <button wire:click="toggleActivo({{ $alumno->id }})"
@@ -93,10 +128,10 @@
                                             class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
                                         Editar
                                     </button>
-                                    @if($alumno->grupos_total > 0)
+                                    @if($alumno->grupos_total > 0 || $alumno->autonomos_total > 0 || $alumno->bonificados_total > 0)
                                         <button wire:click="abrirModalGrupos({{ $alumno->id }})"
                                                 class="text-gray-500 hover:text-gray-700 text-sm">
-                                            Ver grupos
+                                            Historial
                                         </button>
                                     @endif
                                 </div>
@@ -284,73 +319,175 @@
             <div class="fixed inset-0 bg-black/50" wire:click="cerrarModalGrupos"></div>
             <div class="flex min-h-full items-center justify-center p-4">
             <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl p-6">
-                <h2 class="text-xl font-bold text-gray-900 mb-1">Grupos formativos</h2>
-                <p class="text-sm text-gray-500 mb-4">{{ $alumnoGruposNombre }}</p>
+                <div class="flex items-center gap-3 mb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-900">Historial</h2>
+                        <p class="text-sm text-gray-500">{{ $alumnoGruposNombre }}</p>
+                    </div>
+                </div>
 
                 @if($gruposDelAlumno && $gruposDelAlumno->isNotEmpty())
-                    <table class="min-w-full divide-y divide-gray-200 text-sm">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Acción formativa</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fechas</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Moodle</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200">
-                            @foreach($gruposDelAlumno as $grupo)
-                                <tr class="hover:bg-gray-50">
-                                    <td class="px-4 py-3">
-                                        <div class="font-medium text-gray-900">{{ $grupo->accionFormativa?->denominacion ?? '—' }}</div>
-                                        <div class="text-xs text-gray-500">Grupo {{ $grupo->id_grupo_fundae }}</div>
-                                    </td>
-                                    <td class="px-4 py-3 text-gray-700">{{ $grupo->empresa?->razon_social ?? '—' }}</td>
-                                    <td class="px-4 py-3 text-gray-700">
-                                        {{ $grupo->fecha_inicio?->format('d/m/Y') ?? '—' }}
-                                        @if($grupo->fecha_fin)
-                                            <span class="text-gray-400">→</span>
-                                            {{ $grupo->fecha_fin->format('d/m/Y') }}
-                                        @endif
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        @php
-                                            $estadoClases = match($grupo->estado) {
-                                                'abierto'    => 'bg-blue-100 text-blue-800',
-                                                'comunicado' => 'bg-amber-100 text-amber-800',
-                                                'en_curso'   => 'bg-green-100 text-green-800',
-                                                'completado' => 'bg-gray-100 text-gray-700',
-                                                'cancelado'  => 'bg-red-100 text-red-800',
-                                                default      => 'bg-gray-100 text-gray-600',
-                                            };
-                                        @endphp
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {{ $estadoClases }}">
-                                            {{ ucfirst(str_replace('_', ' ', $grupo->estado)) }}
-                                        </span>
-                                    </td>
-                                    <td class="px-4 py-3">
-                                        @php $estadoMoodle = $grupo->pivot->estado_moodle ?? 'pendiente'; @endphp
-                                        @if($estadoMoodle === 'matriculado')
-                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Matriculado</span>
-                                        @elseif($estadoMoodle === 'aulasystem')
-                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-800">Aulasystem</span>
-                                        @elseif($estadoMoodle === 'error')
-                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Error</span>
-                                        @elseif($estadoMoodle === 'creado')
-                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Creado</span>
-                                        @else
-                                            <span class="text-xs text-gray-400">Pendiente</span>
-                                        @endif
-                                        @if($grupo->pivot->moodle_username)
-                                            <div class="text-xs text-gray-400 mt-1">{{ $grupo->pivot->moodle_username }}</div>
-                                        @endif
-                                    </td>
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
+                            <span class="inline-flex px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">FUNDAE</span>
+                            Grupos bonificados
+                        </h3>
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Acción formativa</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fechas</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Moodle</th>
                                 </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                @else
-                    <p class="text-sm text-gray-500 text-center py-8">Este alumno no tiene grupos formativos.</p>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                @foreach($gruposDelAlumno as $grupo)
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3">
+                                            <div class="font-medium text-gray-900">{{ $grupo->accionFormativa?->denominacion ?? '—' }}</div>
+                                            <div class="text-xs text-gray-500">{{ $grupo->accionFormativa?->numero_accion }}/{{ $grupo->id_grupo_fundae }}</div>
+                                        </td>
+                                        <td class="px-4 py-3 text-gray-700">{{ $grupo->empresa?->razon_social ?? '—' }}</td>
+                                        <td class="px-4 py-3 text-gray-700">
+                                            {{ $grupo->fecha_inicio?->format('d/m/Y') ?? '—' }}
+                                            @if($grupo->fecha_fin)
+                                                <span class="text-gray-400">→</span>
+                                                {{ $grupo->fecha_fin->format('d/m/Y') }}
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @php
+                                                $estadoClases = match($grupo->estado) {
+                                                    'abierto'    => 'bg-blue-100 text-blue-800',
+                                                    'comunicado' => 'bg-amber-100 text-amber-800',
+                                                    'en_curso'   => 'bg-green-100 text-green-800',
+                                                    'completado' => 'bg-gray-100 text-gray-700',
+                                                    'cancelado'  => 'bg-red-100 text-red-800',
+                                                    default      => 'bg-gray-100 text-gray-600',
+                                                };
+                                            @endphp
+                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {{ $estadoClases }}">
+                                                {{ ucfirst(str_replace('_', ' ', $grupo->estado)) }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @php $estadoMoodle = $grupo->pivot->estado_moodle ?? 'pendiente'; @endphp
+                                            @if($estadoMoodle === 'matriculado')
+                                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Matriculado</span>
+                                            @elseif($estadoMoodle === 'aulasystem')
+                                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-800">Aulasystem</span>
+                                            @elseif($estadoMoodle === 'error')
+                                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Error</span>
+                                            @elseif($estadoMoodle === 'creado')
+                                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">Creado</span>
+                                            @else
+                                                <span class="text-xs text-gray-400">Pendiente</span>
+                                            @endif
+                                            @if($grupo->pivot->moodle_username)
+                                                <div class="text-xs text-gray-400 mt-1">{{ $grupo->pivot->moodle_username }}</div>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+
+                @if($bonificadosDelAlumno && $bonificadosDelAlumno->isNotEmpty())
+                    <div class="mt-4">
+                        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
+                            <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800">IMPORTADO</span>
+                            Participación FUNDAE (importada)
+                        </h3>
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Grupo</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">PIF</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fechas</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado grupo</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                @foreach($bonificadosDelAlumno as $pb)
+                                    <tr class="hover:bg-emerald-50">
+                                        <td class="px-4 py-3 font-medium text-gray-900">{{ $pb->id_codigo_grupo ?? '—' }}</td>
+                                        <td class="px-4 py-3 text-gray-700">{{ $pb->codigo_pif ?? '—' }}</td>
+                                        <td class="px-4 py-3 text-gray-700">
+                                            {{ $pb->fecha_inicio?->format('d/m/Y') ?? '—' }}
+                                            @if($pb->fecha_fin)
+                                                <span class="text-gray-400">→</span>
+                                                {{ $pb->fecha_fin->format('d/m/Y') }}
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                                                {{ $pb->estado ?? '—' }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                                                {{ $pb->estado_grupo ?? '—' }}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+
+                @if($autonomosDelAlumno && $autonomosDelAlumno->isNotEmpty())
+                    <div class="mt-4">
+                        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
+                            <span class="inline-flex px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700 border border-amber-200">2x1</span>
+                            Matrículas autónomas
+                        </h3>
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Acción formativa</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tutor</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fechas</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Estado Moodle</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                @foreach($autonomosDelAlumno as $ma)
+                                    <tr class="hover:bg-amber-50">
+                                        <td class="px-4 py-3">
+                                            <div class="font-medium text-gray-900">{{ $ma->accionFormativa?->denominacion_limpia ?? '—' }}</div>
+                                            <div class="text-xs text-gray-500">{{ $ma->accionFormativa?->numero_accion }}</div>
+                                        </td>
+                                        <td class="px-4 py-3 text-gray-700">{{ $ma->tutor?->nombre_completo ?? '—' }}</td>
+                                        <td class="px-4 py-3 text-gray-700">
+                                            {{ $ma->fecha_inicio?->format('d/m/Y') ?? '—' }}
+                                            @if($ma->fecha_fin)
+                                                <span class="text-gray-400">→</span>
+                                                {{ $ma->fecha_fin->format('d/m/Y') }}
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @if($ma->estado === 'matriculado')
+                                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Matriculado</span>
+                                                @if($ma->moodle_username)
+                                                    <div class="text-xs text-gray-400 mt-1">{{ $ma->moodle_username }}</div>
+                                                @endif
+                                            @elseif($ma->estado === 'error')
+                                                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Error</span>
+                                            @else
+                                                <span class="text-xs text-gray-400">Pendiente</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
                 @endif
 
                 <div class="flex justify-end pt-4 border-t border-gray-200 mt-4">

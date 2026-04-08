@@ -18,19 +18,19 @@
             <table style="width: 100%; border-collapse: collapse;">
                 <tr>
                     <td style="padding: 8px 0; font-weight: bold; color: #6B7280; width: 140px;">Curso:</td>
-                    <td style="padding: 8px 0;">{{ $grupo->accionFormativa->denominacion_limpia }}</td>
+                    <td style="padding: 8px 0;">{{ $cursoNombre }}</td>
                 </tr>
                 <tr>
                     <td style="padding: 8px 0; font-weight: bold; color: #6B7280;">Horas:</td>
-                    <td style="padding: 8px 0;">{{ $grupo->accionFormativa->horas }}h</td>
+                    <td style="padding: 8px 0;">{{ $cursoHoras }}h</td>
                 </tr>
                 <tr>
                     <td style="padding: 8px 0; font-weight: bold; color: #6B7280;">Fecha inicio:</td>
-                    <td style="padding: 8px 0;">{{ $grupo->fecha_inicio->format('d/m/Y') }}</td>
+                    <td style="padding: 8px 0;">{{ $fechaInicio?->format('d/m/Y') ?? '-' }}</td>
                 </tr>
                 <tr>
                     <td style="padding: 8px 0; font-weight: bold; color: #6B7280;">Fecha fin:</td>
-                    <td style="padding: 8px 0;">{{ $grupo->fecha_fin->format('d/m/Y') }}</td>
+                    <td style="padding: 8px 0;">{{ $fechaFin?->format('d/m/Y') ?? '-' }}</td>
                 </tr>
             </table>
         </div>
@@ -53,7 +53,11 @@
             </table>
         </div>
 
+        @if($esBonificado)
         <p>Te recordamos que tu desempeño en este curso será determinante para la bonificación del mismo. Así que te animamos a participar activamente, cumplir con las fechas límite y aprovechar al máximo los recursos disponibles en el aula virtual.</p>
+        @else
+        <p>Te animamos a participar activamente y aprovechar al máximo los recursos disponibles en el aula virtual.</p>
+        @endif
 
         <p>Si tienes alguna pregunta o necesitas ayuda con el acceso o el uso de la plataforma, no dudes en ponerte en contacto con nuestro equipo de soporte técnico a través de <a href="mailto:administracion@webcurso.es" style="color: #4F46E5;">administracion@webcurso.es</a>.</p>
 

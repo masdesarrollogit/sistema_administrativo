@@ -18,6 +18,17 @@ class AccionesFormativasIndex extends Component
     public string $filtroAreaProfesional = '';
     public string $filtroPlataforma = '';
 
+    // ─── Edición ───
+    public ?int $accionEditandoId = null;
+    public string $editDenominacion = '';
+    public string $editHoras = '';
+    public string $editEstado = '';
+    public string $editAreaProfesional = '';
+    public string $editCodigoActividad = '';
+    public string $editCodGrupoAccion = '';
+    public string $editObjetivos = '';
+    public string $editContenidos = '';
+
     // ─── Vinculación con Moodle ───
     public ?int $accionVinculandoId = null;
     public string $vinculoMoodleCourseId = '';
@@ -132,6 +143,12 @@ class AccionesFormativasIndex extends Component
     public function eliminarVinculo(int $vinculoId): void
     {
         AccionFormativaMoodleCurso::findOrFail($vinculoId)->delete();
+    }
+
+    public function eliminarAccion(int $accionId): void
+    {
+        AccionFormativa::findOrFail($accionId)->delete();
+        session()->flash('message', 'Acción formativa eliminada.');
     }
 
     public function render()

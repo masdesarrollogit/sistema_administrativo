@@ -74,7 +74,7 @@ class AccionFormativa extends Model
      */
     public function getDenominacionLimpiaAttribute(): string
     {
-        return preg_replace('/\s+\d+h\s+[a-z]$/i', '', $this->denominacion);
+        return preg_replace('/\s+\d+h(\s+[a-z])?$/i', '', $this->denominacion);
     }
 
     /**

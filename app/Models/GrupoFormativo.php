@@ -111,7 +111,7 @@ class GrupoFormativo extends Model
             $parteAlumno = "({$cantAlumnos})";
         }
 
-        return sprintf(
+        $descripcion = sprintf(
             '%s %s %s %s %dh %s%s',
             $empresa->cif,
             $empresa->razon_social,
@@ -121,6 +121,8 @@ class GrupoFormativo extends Model
             $tramo,
             $tutor->iniciales,
         );
+
+        return substr($descripcion, 0, 100);
     }
 
     /**
@@ -283,8 +285,18 @@ class GrupoFormativo extends Model
                 ]);
 
                 // Enviar email de credenciales siempre (usuario nuevo o existente)
+                $accion = $this->accionFormativa;
                 Mail::mailer('moodle')->to($username)->send(
-                    new \App\Mail\CredencialesMoodleMail($this, $alumno, $username, $password, $moodleCourseId)
+                    new \App\Mail\CredencialesMoodleMail(
+                        alumno: $alumno,
+                        username: $username,
+                        password: $password,
+                        moodleCourseId: $moodleCourseId,
+                        cursoNombre: $accion->denominacion_limpia,
+                        cursoHoras: $accion->horas,
+                        fechaInicio: $this->fecha_inicio,
+                        fechaFin: $this->fecha_fin,
+                    )
                 );
 
                 $resultados['exitos']++;

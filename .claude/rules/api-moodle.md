@@ -146,6 +146,7 @@ Implementado en `GrupoFormativo::ejecutarEnMoodle(int $moodleCourseId)`:
 - **CC**: `administracion@webcurso.es`
 - **Mailer**: dedicado `moodle` en `config/mail.php` (SMTP Gmail con alias)
 - **Contenido**: nombre del alumno, username, password, URL completa del curso (`{public_url}/course/view.php?id={courseId}`), fechas de inicio y fin, parrafo de bonificacion, contacto soporte (`administracion@webcurso.es`)
+- **Refactorizado (2026-03-30)**: ya no depende de GrupoFormativo. Acepta datos genericos (cursoNombre, cursoHoras, fechaInicio, fechaFin). Usado tanto por GrupoFormativo::ejecutarEnMoodle() como por MatriculaAutonoma::ejecutarEnMoodle()
 
 ## Patron de credenciales
 

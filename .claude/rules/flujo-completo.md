@@ -67,14 +67,31 @@ Cuando el candidato tiene todos los requisitos completos, aparece la seccion "Ma
 - Descripcion del grupo: `{CIF} {empresa} {alumno|({N})} {curso} {horas}h {tramo}{tutor_iniciales}`
 - id_grupo_fundae se asigna automaticamente al crear el grupo
 
+### Importacion de alumnos bonificados (implementado 2026-04-07):
+- Comando `alumnos:importar-bonificados` cruza participantes bonificados (FUNDAE) con webcourses2014 (legacy) para crear alumnos con datos completos
+- Cruce por NIF (`personal_id` del legacy, no `nid`). 97.7% de match (42/43)
+- AlumnosIndex muestra historial FUNDAE importado en modal "Historial" (seccion "Participacion FUNDAE importada")
+
 ### Pendiente:
-- Importacion de alumnos via XLSX (plantilla que se envia al candidato)
 - Reorganizacion de categorias en Moodle
 
-**Componentes:** MatriculacionPanel (anidado en CandidatoEstatus), TutoresIndex, AccionesFormativasIndex
-**Modelos:** GrupoFormativo, Tutor, Alumno, AccionFormativa, AccionFormativaMoodleCurso
+### Autonomos (oferta 2x1) — implementado 2026-03-30
+Alumnos autonomos que no llevan grupo formativo en FUNDAE. Se les ofrece un curso gratis por cada alumno bonificado.
+
+**Flujo:**
+1. **Crear matricula autonoma**: seleccionar accion formativa, tutor, alumno (existente o nuevo), fechas (opcionales, libres)
+2. **Matricular en Moodle**: mismo pipeline que bonificados (crear/actualizar usuario, matricular, enviar email credenciales)
+
+**Diferencias con bonificados:**
+- NO tienen grupo formativo, XML, PDF FUNDAE, id_grupo_fundae, tramo horario, jornada laboral
+- Fecha de inicio libre (sin restriccion de 2 dias antes)
+- Matricula individual en Moodle (sin crear grupo Moodle)
+- Estados simplificados: `pendiente` → `matriculado` (o `error`)
+
+**Componentes:** MatriculacionPanel (seccion "Autonomos (2x1)" hermana de "Grupos Formativos")
+**Modelos:** MatriculaAutonoma, GrupoFormativo, Tutor, Alumno, AccionFormativa, AccionFormativaMoodleCurso
 **Servicios:** FundaeXmlService, MoodleService (funcional)
-**Emails:** CredencialesMoodleMail
+**Emails:** CredencialesMoodleMail (refactorizado: acepta datos genericos, no depende de GrupoFormativo)
 
 ---
 

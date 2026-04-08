@@ -108,6 +108,17 @@ return [
             'timeout'    => null,
         ],
 
+        // Mailer dedicado para emails de saldo a participantes bonificados (saldoswebcurso@gmail.com)
+        'saldos' => [
+            'transport'  => env('SALDOS_MAIL_MAILER', 'smtp'),
+            'host'       => env('SALDOS_MAIL_HOST', '127.0.0.1'),
+            'port'       => env('SALDOS_MAIL_PORT', 587),
+            'encryption' => env('SALDOS_MAIL_ENCRYPTION', 'tls'),
+            'username'   => env('SALDOS_MAIL_USERNAME'),
+            'password'   => env('SALDOS_MAIL_PASSWORD'),
+            'timeout'    => null,
+        ],
+
     ],
 
     /*

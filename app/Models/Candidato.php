@@ -97,6 +97,14 @@ class Candidato extends Model
     }
 
     /**
+     * Relación con matrículas de autónomos (oferta 2x1)
+     */
+    public function matriculasAutonomas(): HasMany
+    {
+        return $this->hasMany(MatriculaAutonoma::class, 'candidato_id');
+    }
+
+    /**
      * Scope para candidatos pendientes
      */
     public function scopePendientes($query)

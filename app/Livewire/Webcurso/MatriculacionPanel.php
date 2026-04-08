@@ -7,6 +7,7 @@ use App\Models\Alumno;
 use App\Models\Candidato;
 use App\Models\Grupo;
 use App\Models\GrupoFormativo;
+use App\Models\MatriculaAutonoma;
 use App\Models\Tutor;
 use Carbon\Carbon;
 use App\Services\Webcurso\CsvImportService;
@@ -74,6 +75,26 @@ class MatriculacionPanel extends Component
 
     // ─── Matriculación Moodle ───
     public array $moodleCursosPorGrupo = []; // [grupoId => moodle_course_id seleccionado]
+
+    // ─── Autónomos (2x1) ───
+    public bool $mostrarFormAutonomo = false;
+    public string $autonomoBusquedaAccion = '';
+    public array $autonomoResultadosAccion = [];
+    public ?int $autonomoAccionFormativaId = null;
+    public ?int $autonomoTutorId = null;
+    public ?int $autonomoAlumnoId = null;
+    public string $autonomoFechaInicio = '';
+    public string $autonomoFechaFin = '';
+    public string $autonomoDias = '';
+    // Nuevo alumno autónomo inline
+    public bool $autonomoNuevoAlumno = false;
+    public string $autonomoNombre = '';
+    public string $autonomoApellido1 = '';
+    public string $autonomoApellido2 = '';
+    public string $autonomoNif = '';
+    public string $autonomoEmail = '';
+    public string $autonomoTelefono = '';
+    public array $moodleCursosPorAutonomo = []; // [matriculaId => moodle_course_id]
 
     public function mount(Candidato $candidato): void
     {
@@ -517,9 +538,11 @@ class MatriculacionPanel extends Component
         $grupo->update(['descripcion' => $grupo->fresh()->descripcion_fundae]);
     }
 
-    public function agregarAlumnosAlGrupo(): void
+    public function agregarAlumnosAlGrupo(?int $alumnoId = null): void
     {
-        if (empty($this->alumnosParaAgregar)) {
+        $ids = $alumnoId ? [$alumnoId] : $this->alumnosParaAgregar;
+
+        if (empty($ids)) {
             session()->flash('error-matricula', 'Selecciona al menos un alumno.');
             return;
         }
@@ -532,26 +555,51 @@ class MatriculacionPanel extends Component
         }
 
         $tutor = $grupo->tutor;
-        $cantNuevos = count($this->alumnosParaAgregar);
-        if (!$tutor->puedeAceptarEnTramo($grupo->tramo_horario, $cantNuevos)) {
+        if (!$tutor->puedeAceptarEnTramo($grupo->tramo_horario, count($ids))) {
             session()->flash('error-matricula', "El tutor superaría los 80 alumnos en este tramo.");
             return;
         }
 
         $agregados = 0;
-        foreach ($this->alumnosParaAgregar as $alumnoId) {
-            $alumno = Alumno::find($alumnoId);
-            if ($alumno && !$alumno->tieneGrupoActivoEnPeriodo($grupo->fecha_inicio, $grupo->fecha_fin, $grupo->id)) {
-                $grupo->alumnos()->syncWithoutDetaching([$alumnoId]);
-                $agregados++;
+        $rechazados = [];
+        $conCurso = [];
+        foreach ($ids as $id) {
+            $alumno = Alumno::find($id);
+            if (!$alumno) continue;
+
+            if ($alumno->matriculasAutonomas()->exists()) {
+                $rechazados[] = $alumno->nombre_completo;
+                continue;
             }
+
+            if ($alumno->tieneGrupoActivoEnPeriodo($grupo->fecha_inicio, $grupo->fecha_fin, $grupo->id)) {
+                $conCurso[] = $alumno->nombre_completo;
+                continue;
+            }
+
+            $grupo->alumnos()->syncWithoutDetaching([$id]);
+            $agregados++;
         }
 
         // Actualizar descripción automática
-        $grupo->update(['descripcion' => $grupo->descripcion_fundae]);
+        $grupo->update(['descripcion' => $grupo->fresh()->descripcion_fundae]);
 
         $this->alumnosParaAgregar = [];
-        session()->flash('message-matricula', "{$agregados} alumno(s) agregado(s) al grupo.");
+
+        $errores = [];
+        if (!empty($rechazados)) {
+            $errores[] = 'Autónomo(s): ' . implode(', ', $rechazados);
+        }
+        if (!empty($conCurso)) {
+            $errores[] = 'Con curso en ese período: ' . implode(', ', $conCurso);
+        }
+
+        if (!empty($errores)) {
+            session()->flash('error-matricula', 'No añadidos — ' . implode('. ', $errores));
+        }
+        if ($agregados > 0) {
+            session()->flash('message-matricula', "{$agregados} alumno(s) agregado(s) al grupo.");
+        }
     }
 
     public function quitarAlumnoDelGrupo(int $grupoId, int $alumnoId): void
@@ -900,28 +948,212 @@ class MatriculacionPanel extends Component
     }
 
     // ═══════════════════════════════════════════════
-    //  RENDER
+    //  AUTÓNOMOS (2x1)
     // ═══════════════════════════════════════════════
 
-    public function agregarAlumnoFidelizado(int $alumnoId): void
+    public function abrirFormAutonomo(): void
     {
-        $grupo = $this->grupoSeleccionadoId
-            ? GrupoFormativo::find($this->grupoSeleccionadoId)
-            : null;
-
-        if (!$grupo) {
-            session()->flash('error-matricula', 'Selecciona un grupo primero.');
-            return;
-        }
-
-        if ($grupo->alumnos()->where('alumno_id', $alumnoId)->exists()) {
-            session()->flash('error-matricula', 'El alumno ya está en este grupo.');
-            return;
-        }
-
-        $grupo->alumnos()->attach($alumnoId, ['estado_moodle' => 'pendiente']);
-        session()->flash('message-matricula', 'Alumno añadido al grupo.');
+        $this->resetFormAutonomo();
+        $this->mostrarFormAutonomo = true;
     }
+
+    public function updatedAutonomoBusquedaAccion(): void
+    {
+        if (strlen($this->autonomoBusquedaAccion) >= 2) {
+            $this->autonomoResultadosAccion = AccionFormativa::activas()
+                ->where(function ($q) {
+                    $q->where('denominacion', 'like', "%{$this->autonomoBusquedaAccion}%")
+                      ->orWhere('numero_accion', 'like', "%{$this->autonomoBusquedaAccion}%");
+                })
+                ->limit(10)
+                ->get()
+                ->map(fn($a) => [
+                    'id'         => $a->id,
+                    'label'      => "#{$a->numero_accion} - {$a->denominacion_limpia} ({$a->horas}h)",
+                    'plataforma' => $a->codigo_plataforma,
+                ])
+                ->toArray();
+        } else {
+            $this->autonomoResultadosAccion = [];
+        }
+    }
+
+    public function seleccionarAccionAutonomo(int $id): void
+    {
+        $this->autonomoAccionFormativaId = $id;
+        $accion = AccionFormativa::find($id);
+        $this->autonomoBusquedaAccion = "#{$accion->numero_accion} - {$accion->denominacion_limpia}";
+        $this->autonomoResultadosAccion = [];
+    }
+
+    public function updatedAutonomoDias(string $value): void
+    {
+        $dias = (int) $value;
+        if ($dias > 0 && $this->autonomoFechaInicio) {
+            $this->autonomoFechaFin = Carbon::parse($this->autonomoFechaInicio)->addDays($dias)->format('Y-m-d');
+        }
+    }
+
+    public function updatedAutonomoFechaInicio(string $value): void
+    {
+        $dias = (int) $this->autonomoDias;
+        if ($dias > 0 && $value) {
+            $this->autonomoFechaFin = Carbon::parse($value)->addDays($dias)->format('Y-m-d');
+        }
+    }
+
+    public function crearMatriculaAutonoma(): void
+    {
+        $rules = [
+            'autonomoAccionFormativaId' => 'required|exists:acciones_formativas,id',
+            'autonomoTutorId'           => 'required|exists:tutores,id',
+            'autonomoFechaInicio'       => 'nullable|date',
+            'autonomoFechaFin'          => 'nullable|date|after_or_equal:autonomoFechaInicio',
+        ];
+
+        if ($this->autonomoNuevoAlumno) {
+            $rules += [
+                'autonomoNombre'    => 'required|string|max:255',
+                'autonomoApellido1' => 'required|string|max:255',
+                'autonomoApellido2' => 'nullable|string|max:255',
+                'autonomoNif'       => 'required|string|max:15|unique:alumnos,nif',
+                'autonomoEmail'     => 'required|email|max:255|unique:alumnos,email',
+                'autonomoTelefono'  => 'nullable|string|max:20',
+            ];
+        } else {
+            $rules['autonomoAlumnoId'] = 'required|exists:alumnos,id';
+        }
+
+        $this->validate($rules, [
+            'autonomoAlumnoId.required' => 'Selecciona un alumno o crea uno nuevo.',
+            'autonomoNif.unique'        => 'Ya existe un alumno con ese NIF.',
+            'autonomoEmail.unique'      => 'Ya existe un alumno con ese correo.',
+        ]);
+
+        if (!$this->candidato->empresa_id) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+            return;
+        }
+
+        // Verificar que el alumno existente no sea bonificado (FUNDAE)
+        if (!$this->autonomoNuevoAlumno) {
+            $alumno = Alumno::find($this->autonomoAlumnoId);
+            if ($alumno && $alumno->gruposFormativos()->exists()) {
+                session()->flash('error-matricula', 'Este alumno tiene grupos FUNDAE. Un alumno bonificado no puede ser autónomo.');
+                return;
+            }
+        }
+
+        // Crear nuevo alumno si es necesario
+        if ($this->autonomoNuevoAlumno) {
+            $alumno = Alumno::create([
+                'empresa_id' => $this->candidato->empresa_id,
+                'nombre'     => $this->autonomoNombre,
+                'apellido1'  => $this->autonomoApellido1,
+                'apellido2'  => $this->autonomoApellido2 ?: null,
+                'nif'        => $this->autonomoNif,
+                'email'      => $this->autonomoEmail,
+                'telefono'   => $this->autonomoTelefono ?: null,
+            ]);
+            $alumnoId = $alumno->id;
+        } else {
+            $alumnoId = $this->autonomoAlumnoId;
+        }
+
+        MatriculaAutonoma::create([
+            'candidato_id'        => $this->candidato->id,
+            'alumno_id'           => $alumnoId,
+            'accion_formativa_id' => $this->autonomoAccionFormativaId,
+            'tutor_id'            => $this->autonomoTutorId,
+            'empresa_id'          => $this->candidato->empresa_id,
+            'fecha_inicio'        => $this->autonomoFechaInicio ?: null,
+            'fecha_fin'           => $this->autonomoFechaFin ?: null,
+            'estado'              => 'pendiente',
+        ]);
+
+        $this->mostrarFormAutonomo = false;
+        $this->resetFormAutonomo();
+        session()->flash('message-matricula', 'Matrícula de autónomo creada correctamente.');
+    }
+
+    public function ejecutarEnMoodleAutonomo(int $matriculaId): void
+    {
+        $matricula = MatriculaAutonoma::with(['alumno', 'tutor', 'accionFormativa'])
+            ->where('candidato_id', $this->candidato->id)
+            ->findOrFail($matriculaId);
+
+        $moodleCourseId = $matricula->moodle_course_id
+            ?? ($this->moodleCursosPorAutonomo[$matriculaId] ?? null);
+
+        if (!$moodleCourseId) {
+            $cursosVinculados = $matricula->accionFormativa->moodleCursos()->where('tipo', 'activa')->get();
+
+            if ($cursosVinculados->isEmpty()) {
+                session()->flash('error-matricula', 'No hay cursos Moodle vinculados a esta acción formativa.');
+                return;
+            }
+
+            // Autodetectar por tutor
+            $tutor = $matricula->tutor;
+            if ($tutor?->moodle_username && $cursosVinculados->count() > 1) {
+                try {
+                    $moodle = app(\Modules\Moodle\Services\MoodleService::class);
+                    $moodleUser = $moodle->findUserByUsername($tutor->moodle_username);
+
+                    if ($moodleUser) {
+                        $cursosTutor = collect($moodle->getUserCourses($moodleUser['id']))->pluck('id')->toArray();
+                        $coincidencias = $cursosVinculados->filter(fn($c) => in_array($c->moodle_course_id, $cursosTutor));
+
+                        if ($coincidencias->count() === 1) {
+                            $moodleCourseId = $coincidencias->first()->moodle_course_id;
+                        } elseif ($coincidencias->count() > 1) {
+                            session()->flash('error-matricula', 'El tutor está en varios cursos vinculados. Selecciona manualmente el aula.');
+                            return;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    // Continuar con selección manual
+                }
+            }
+
+            if (!$moodleCourseId && $cursosVinculados->count() === 1) {
+                $moodleCourseId = $cursosVinculados->first()->moodle_course_id;
+            }
+
+            if (!$moodleCourseId) {
+                session()->flash('error-matricula', 'Selecciona el aula de Moodle antes de matricular.');
+                return;
+            }
+        }
+
+        $resultados = $matricula->ejecutarEnMoodle($moodleCourseId);
+        session()->flash('message-matricula', "Autónomo Moodle: {$resultados['exitos']} matriculado(s), {$resultados['errores']} error(es).");
+    }
+
+    public function eliminarMatriculaAutonoma(int $matriculaId): void
+    {
+        MatriculaAutonoma::where('id', $matriculaId)
+            ->where('candidato_id', $this->candidato->id)
+            ->firstOrFail()
+            ->delete();
+
+        session()->flash('message-matricula', 'Matrícula de autónomo eliminada.');
+    }
+
+    protected function resetFormAutonomo(): void
+    {
+        $this->reset([
+            'autonomoBusquedaAccion', 'autonomoResultadosAccion', 'autonomoAccionFormativaId',
+            'autonomoTutorId', 'autonomoAlumnoId', 'autonomoFechaInicio', 'autonomoFechaFin',
+            'autonomoDias', 'autonomoNuevoAlumno', 'autonomoNombre', 'autonomoApellido1',
+            'autonomoApellido2', 'autonomoNif', 'autonomoEmail', 'autonomoTelefono',
+        ]);
+        $this->resetValidation();
+    }
+
+    // ═══════════════════════════════════════════════
+    //  RENDER
+    // ═══════════════════════════════════════════════
 
     public function render()
     {
@@ -959,25 +1191,24 @@ class MatriculacionPanel extends Component
             ? GrupoFormativo::with('alumnos')->find($this->grupoSeleccionadoId)
             : null;
 
-        // Alumnos de la empresa que aún no están en el grupo seleccionado
-        $alumnosFidelizados = collect();
-        if ($grupoActivo && $this->candidato->empresa_id) {
-            $idsEnGrupo = $grupoActivo->alumnos->pluck('id');
-            $alumnosFidelizados = Alumno::where('empresa_id', $this->candidato->empresa_id)
-                ->activos()
-                ->whereNotIn('id', $idsEnGrupo)
-                ->orderBy('apellido1')
-                ->get();
-        }
+        // Alumnos disponibles para autónomos (sin grupos FUNDAE)
+        $alumnosParaAutonomo = $alumnos->filter(fn ($a) => $a->gruposFormativos()->doesntExist());
+
+        // Matrículas de autónomos
+        $matriculasAutonomas = MatriculaAutonoma::where('candidato_id', $this->candidato->id)
+            ->with(['alumno', 'accionFormativa', 'tutor'])
+            ->orderByDesc('created_at')
+            ->get();
 
         return view('livewire.webcurso.matriculacion-panel', [
-            'alumnos'            => $alumnos,
-            'grupos'             => $grupos,
-            'gruposAbiertos'     => $gruposAbiertos,
-            'tutores'            => $tutores,
-            'grupoActivo'        => $grupoActivo,
-            'gruposEnFundae'     => $gruposEnFundae,
-            'alumnosFidelizados' => $alumnosFidelizados,
+            'alumnos'              => $alumnos,
+            'grupos'               => $grupos,
+            'gruposAbiertos'       => $gruposAbiertos,
+            'tutores'              => $tutores,
+            'grupoActivo'          => $grupoActivo,
+            'gruposEnFundae'       => $gruposEnFundae,
+            'alumnosParaAutonomo'  => $alumnosParaAutonomo,
+            'matriculasAutonomas'  => $matriculasAutonomas,
         ]);
     }
 }

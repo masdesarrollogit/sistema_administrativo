@@ -78,4 +78,31 @@ return [
         'whatsapp' => env('CONTACTO_WHATSAPP'),
         'whatsapp_display' => env('CONTACTO_WHATSAPP_DISPLAY'),
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Email mensual de saldo a participantes bonificados
+    |--------------------------------------------------------------------------
+    |
+    | Configuración del envío automático de emails con el saldo disponible
+    | de la empresa a participantes que ya completaron formación bonificada.
+    |
+    */
+
+    'email_saldo_bonificados' => [
+        // Activar/desactivar envío automático
+        'activo' => env('BONIFICADOS_EMAIL_ACTIVO', true),
+
+        // Frecuencia: monthly, biweekly, weekly
+        'frecuencia' => env('BONIFICADOS_EMAIL_FRECUENCIA', 'monthly'),
+
+        // Día del mes para envío mensual (1-28)
+        'dia_del_mes' => (int) env('BONIFICADOS_EMAIL_DIA', 1),
+
+        // Hora de envío (formato HH:MM)
+        'hora' => env('BONIFICADOS_EMAIL_HORA', '10:00'),
+
+        // Email para notificar errores
+        'email_errores' => env('BONIFICADOS_EMAIL_ERRORES'),
+    ],
 ];

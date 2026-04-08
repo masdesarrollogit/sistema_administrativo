@@ -482,30 +482,7 @@
                                     @endif
                                 </div>
 
-                                {{-- ── Sección 2: Alumnos fidelizados de la empresa ── --}}
-                                @if($alumnosFidelizados->isNotEmpty())
-                                <div>
-                                    <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                                        Alumnos ya registrados en esta empresa
-                                    </p>
-                                    <div class="space-y-1">
-                                        @foreach($alumnosFidelizados as $af)
-                                            <div class="flex items-center justify-between px-3 py-1.5 bg-white border border-gray-200 rounded text-sm">
-                                                <span class="text-gray-800">
-                                                    {{ $af->nombre }} {{ $af->apellido1 }} {{ $af->apellido2 }}
-                                                    <span class="text-gray-400 text-xs ml-1">{{ $af->email }}</span>
-                                                </span>
-                                                <button wire:click="agregarAlumnoFidelizado({{ $af->id }})"
-                                                        class="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs hover:bg-indigo-200 font-medium">
-                                                    + Añadir
-                                                </button>
-                                            </div>
-                                        @endforeach
-                                    </div>
-                                </div>
-                                @endif
-
-                                {{-- ── Sección 3: Importar desde archivo (toggle) ── --}}
+                                {{-- ── Sección 2: Importar desde archivo (toggle) ── --}}
                                 <div>
                                     <button wire:click="$toggle('mostrarImportAlumnos')"
                                             class="text-xs text-teal-700 hover:text-teal-900 font-semibold underline underline-offset-2">
@@ -623,6 +600,264 @@
             </div>
         @else
             <p class="text-gray-500 text-sm text-center py-6">No hay grupos formativos. Crea uno para empezar.</p>
+        @endif
+    </div>
+
+    {{-- ═══════════════════════════════════════════════ --}}
+    {{-- AUTÓNOMOS (2x1)                                --}}
+    {{-- ═══════════════════════════════════════════════ --}}
+    <div class="bg-white shadow-sm sm:rounded-lg p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-bold text-gray-800">
+                Autónomos
+                <span class="text-sm font-normal text-gray-500 ml-1">(oferta 2x1)</span>
+            </h3>
+            <button wire:click="abrirFormAutonomo" class="px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">
+                + Nuevo Autónomo
+            </button>
+        </div>
+
+        {{-- Formulario crear matrícula autónoma --}}
+        @if($mostrarFormAutonomo)
+            <div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <h4 class="font-semibold text-gray-800 mb-3">Nueva matrícula de autónomo</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                    {{-- Acción formativa --}}
+                    <div class="relative">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Acción Formativa *</label>
+                        <input type="text" wire:model.live.debounce.300ms="autonomoBusquedaAccion"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500"
+                               placeholder="Buscar por denominación o número...">
+                        @if(!empty($autonomoResultadosAccion))
+                            <div class="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                                @foreach($autonomoResultadosAccion as $r)
+                                    <button type="button" wire:click="seleccionarAccionAutonomo({{ $r['id'] }})"
+                                            class="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 border-b border-gray-100 flex items-center justify-between gap-2">
+                                        <span>{{ $r['label'] }}</span>
+                                        @if(($r['plataforma'] ?? null) === 'a')
+                                            <span class="flex-shrink-0 inline-flex px-1.5 py-0.5 text-xs rounded bg-amber-100 text-amber-700 font-medium">Aulasystem</span>
+                                        @elseif(($r['plataforma'] ?? null) === 'm')
+                                            <span class="flex-shrink-0 inline-flex px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-700 font-medium">Moodle</span>
+                                        @endif
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+                        @error('autonomoAccionFormativaId') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    </div>
+
+                    {{-- Tutor --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Tutor *</label>
+                        <select wire:model="autonomoTutorId" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+                            <option value="">Seleccionar tutor...</option>
+                            @foreach($tutores as $tutor)
+                                <option value="{{ $tutor->id }}">{{ $tutor->nombre_completo }} ({{ $tutor->tipo }})</option>
+                            @endforeach
+                        </select>
+                        @error('autonomoTutorId') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    </div>
+
+                    {{-- Alumno existente o nuevo --}}
+                    <div class="md:col-span-2">
+                        <div class="flex items-center gap-3 mb-2">
+                            <label class="block text-xs font-medium text-gray-700">Alumno *</label>
+                            <button type="button" wire:click="$toggle('autonomoNuevoAlumno')"
+                                    class="text-xs text-amber-700 hover:text-amber-900 underline underline-offset-2">
+                                {{ $autonomoNuevoAlumno ? 'Seleccionar existente' : 'Crear nuevo alumno' }}
+                            </button>
+                        </div>
+
+                        @if(!$autonomoNuevoAlumno)
+                            <select wire:model="autonomoAlumnoId" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+                                <option value="">Seleccionar alumno de la empresa...</option>
+                                @foreach($alumnosParaAutonomo as $al)
+                                    <option value="{{ $al->id }}">{{ $al->nombre_completo }} — {{ $al->nif }} — {{ $al->email ?? 'sin email' }}</option>
+                                @endforeach
+                            </select>
+                            @error('autonomoAlumnoId') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        @else
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 p-3 bg-white border border-amber-200 rounded-lg">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Nombre *</label>
+                                    <input type="text" wire:model="autonomoNombre" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    @error('autonomoNombre') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Apellido 1 *</label>
+                                    <input type="text" wire:model="autonomoApellido1" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    @error('autonomoApellido1') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Apellido 2</label>
+                                    <input type="text" wire:model="autonomoApellido2" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">NIF *</label>
+                                    <input type="text" wire:model="autonomoNif" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    @error('autonomoNif') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+                                    <input type="email" wire:model="autonomoEmail" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                    @error('autonomoEmail') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Teléfono</label>
+                                    <input type="text" wire:model="autonomoTelefono" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+
+                    {{-- Fechas --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Fecha Inicio</label>
+                        <input type="date" wire:model="autonomoFechaInicio" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+                        @error('autonomoFechaInicio') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Fecha Fin</label>
+                        <input type="date" wire:model="autonomoFechaFin" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+                        @error('autonomoFechaFin') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Días (calcula fin)</label>
+                        <input type="number" wire:model.live="autonomoDias" min="1" max="365"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500"
+                               placeholder="Ej: 30">
+                    </div>
+                </div>
+                <div class="flex gap-2 mt-4">
+                    <button wire:click="crearMatriculaAutonoma" class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">Crear Matrícula</button>
+                    <button wire:click="$set('mostrarFormAutonomo', false)" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Cancelar</button>
+                </div>
+            </div>
+        @endif
+
+        {{-- Lista de matrículas autónomas --}}
+        @if($matriculasAutonomas->isNotEmpty())
+            <div class="space-y-3">
+                @foreach($matriculasAutonomas as $ma)
+                    <div class="border rounded-lg border-gray-200 p-4">
+                        <div class="flex items-start justify-between">
+                            <div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-semibold text-gray-900">
+                                        {{ $ma->alumno->nombre_completo }}
+                                    </span>
+                                    <span class="text-xs text-gray-500">{{ $ma->alumno->nif }}</span>
+                                    @php
+                                        $coloresEstadoAut = [
+                                            'pendiente'   => 'bg-gray-100 text-gray-600',
+                                            'matriculado' => 'bg-green-100 text-green-800',
+                                            'error'       => 'bg-red-100 text-red-800',
+                                        ];
+                                    @endphp
+                                    <span class="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full {{ $coloresEstadoAut[$ma->estado] ?? '' }}">
+                                        {{ ucfirst($ma->estado) }}
+                                    </span>
+                                    <span class="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
+                                        Autónomo
+                                    </span>
+                                </div>
+                                <div class="text-sm text-gray-600 mt-1">
+                                    #{{ $ma->accionFormativa->numero_accion }} — {{ Str::limit($ma->accionFormativa->denominacion_limpia, 50) }}
+                                    &nbsp;|&nbsp; {{ $ma->tutor->nombre_completo }}
+                                    @if($ma->fecha_inicio)
+                                        &nbsp;|&nbsp; {{ $ma->fecha_inicio->format('d/m/Y') }}{{ $ma->fecha_fin ? ' – ' . $ma->fecha_fin->format('d/m/Y') : '' }}
+                                    @endif
+                                </div>
+                                @if($ma->estado === 'error' && $ma->ultimo_error_moodle)
+                                    <div class="text-xs text-red-600 mt-1">Error: {{ Str::limit($ma->ultimo_error_moodle, 120) }}</div>
+                                @endif
+                                @if($ma->moodle_username)
+                                    <div class="text-xs text-gray-400 mt-1">Moodle: {{ $ma->moodle_username }}</div>
+                                @endif
+                            </div>
+
+                            {{-- Botones --}}
+                            <div class="flex gap-1 flex-shrink-0 ml-2">
+                                <button wire:click="abrirEditarAlumno({{ $ma->alumno->id }})"
+                                        class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200">
+                                    Editar alumno
+                                </button>
+                                @if($ma->estado === 'pendiente' || $ma->estado === 'error')
+                                    @php
+                                        $cursosVinculadosAut = $ma->accionFormativa->moodleCursos()->where('tipo', 'activa')->get();
+                                        $necesitaSelectorAut = $cursosVinculadosAut->count() > 1 && !$ma->moodle_course_id;
+                                    @endphp
+                                    @if($necesitaSelectorAut)
+                                        <select wire:model="moodleCursosPorAutonomo.{{ $ma->id }}"
+                                                class="px-2 py-1 border border-gray-300 rounded text-xs">
+                                            <option value="">Selecciona aula</option>
+                                            @foreach($cursosVinculadosAut as $cv)
+                                                <option value="{{ $cv->moodle_course_id }}">{{ $cv->moodle_fullname }}</option>
+                                            @endforeach
+                                        </select>
+                                    @endif
+                                    <button wire:click="ejecutarEnMoodleAutonomo({{ $ma->id }})"
+                                            wire:confirm="¿Matricular autónomo en Moodle?"
+                                            class="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700">
+                                        {{ $ma->estado === 'error' ? 'Reintentar' : 'Matricular en Moodle' }}
+                                    </button>
+                                @endif
+                                @if($ma->estado === 'pendiente')
+                                    <button wire:click="eliminarMatriculaAutonoma({{ $ma->id }})"
+                                            wire:confirm="¿Eliminar esta matrícula de autónomo?"
+                                            class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">
+                                        Eliminar
+                                    </button>
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Formulario edición inline del alumno autónomo --}}
+                    @if($editandoAlumnoId === $ma->alumno->id)
+                        <div class="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <p class="text-xs font-semibold text-amber-700 uppercase mb-2">Editar alumno</p>
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Nombre *</label>
+                                    <input type="text" wire:model="editAlumnoNombre" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
+                                    @error('editAlumnoNombre') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Apellido 1 *</label>
+                                    <input type="text" wire:model="editAlumnoApellido1" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
+                                    @error('editAlumnoApellido1') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Apellido 2</label>
+                                    <input type="text" wire:model="editAlumnoApellido2" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">NIF *</label>
+                                    <input type="text" wire:model="editAlumnoNif" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
+                                    @error('editAlumnoNif') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+                                    <input type="email" wire:model="editAlumnoEmail" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
+                                    @error('editAlumnoEmail') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Teléfono</label>
+                                    <input type="text" wire:model="editAlumnoTelefono" class="w-full px-2 py-1 border border-gray-300 rounded text-sm">
+                                </div>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <button wire:click="actualizarAlumno" class="px-3 py-1 bg-amber-600 text-white rounded text-sm hover:bg-amber-700">Guardar</button>
+                                <button wire:click="cerrarEditarAlumno" class="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200">Cancelar</button>
+                            </div>
+                        </div>
+                    @endif
+                @endforeach
+            </div>
+        @else
+            <p class="text-gray-500 text-sm text-center py-4">No hay matrículas de autónomos. Crea una para empezar.</p>
         @endif
     </div>
 </div>

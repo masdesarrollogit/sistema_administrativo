@@ -3,10 +3,13 @@
 namespace App\Livewire\Webcurso;
 
 use App\Mail\SaldoParticipanteBonificadoMail;
+use App\Models\Alumno;
+use App\Models\BonificadoEmailExclusion;
 use App\Models\Empresa;
 use App\Models\ParticipanteBonificado;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 
 class ParticipantesBonificadosIndex extends Component
@@ -28,6 +31,10 @@ class ParticipantesBonificadosIndex extends Component
     public ?array $empresaModal = null;
     public bool $enviandoEmail  = false;
     public ?string $mensajeEmail = null;
+
+    // Envío masivo de saldo
+    public bool $enviandoMasivo = false;
+    public ?string $resultadoEnvioMasivo = null;
 
     protected $queryString = [
         'filtroNombre' => ['except' => ''],
@@ -114,6 +121,56 @@ class ParticipantesBonificadosIndex extends Component
         $this->enviandoEmail = false;
     }
 
+    // ─── Envío masivo de email de saldo ──────────────────────────────────────
+
+    public function enviarEmailSaldoPrueba(): void
+    {
+        $this->enviandoMasivo = true;
+        $this->resultadoEnvioMasivo = null;
+
+        try {
+            Artisan::call('bonificados:enviar-email-saldo', ['--dry-run' => true]);
+            $this->resultadoEnvioMasivo = '🔍 ' . Artisan::output();
+        } catch (\Exception $e) {
+            $this->resultadoEnvioMasivo = '❌ Error: ' . $e->getMessage();
+        }
+
+        $this->enviandoMasivo = false;
+    }
+
+    public function enviarEmailSaldoMasivo(): void
+    {
+        $this->enviandoMasivo = true;
+        $this->resultadoEnvioMasivo = null;
+
+        try {
+            Artisan::call('bonificados:enviar-email-saldo');
+            $this->resultadoEnvioMasivo = '✅ ' . Artisan::output();
+        } catch (\Exception $e) {
+            $this->resultadoEnvioMasivo = '❌ Error: ' . $e->getMessage();
+        }
+
+        $this->enviandoMasivo = false;
+    }
+
+    // ─── Exclusión individual de participantes ────────────────────────────────
+
+    public function excluirParticipante(string $nif, string $nombre): void
+    {
+        BonificadoEmailExclusion::updateOrCreate(
+            ['nif' => $nif],
+            [
+                'nombre' => $nombre,
+                'excluido_por' => auth()->id(),
+            ]
+        );
+    }
+
+    public function reactivarParticipante(string $nif): void
+    {
+        BonificadoEmailExclusion::where('nif', $nif)->delete();
+    }
+
     // ─── Query ────────────────────────────────────────────────────────────────
 
     protected function getParticipantes()
@@ -147,17 +204,42 @@ class ParticipantesBonificadosIndex extends Component
             ->distinct('cif')
             ->count('cif');
 
+        $finalizados = ParticipanteBonificado::where('estado', 'Finalizado')
+            ->whereNotNull('nif_participante')
+            ->where('nif_participante', '!=', '')
+            ->distinct('nif_participante')
+            ->count('nif_participante');
+
+        $excluidos = BonificadoEmailExclusion::count();
+
         return [
-            'total'      => $total,
-            'cif_unicos' => $cifUnicos,
+            'total'        => $total,
+            'cif_unicos'   => $cifUnicos,
+            'finalizados'  => $finalizados,
+            'excluidos'    => $excluidos,
         ];
     }
 
     public function render()
     {
+        $nifsExcluidos = BonificadoEmailExclusion::pluck('nif')->toArray();
+
+        // Resolver emails desde alumnos para los participantes de la página actual
+        $participantes = $this->getParticipantes();
+        $nifs = collect($participantes->items())->pluck('nif_participante')->filter()->unique()->toArray();
+        $emailsPorNif = Alumno::whereIn('nif', $nifs)
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
+            ->pluck('email', 'nif')
+            ->toArray();
+
         return view('livewire.webcurso.participantes-bonificados-index', [
-            'participantes' => $this->getParticipantes(),
-            'stats'         => $this->getEstadisticas(),
+            'participantes'  => $participantes,
+            'stats'          => $this->getEstadisticas(),
+            'nifsExcluidos'  => $nifsExcluidos,
+            'emailsPorNif'   => $emailsPorNif,
+            'cronActivo'     => config('candidatos.email_saldo_bonificados.activo', true),
+            'cronFrecuencia' => config('candidatos.email_saldo_bonificados.frecuencia', 'monthly'),
         ])->layout('layouts.app', ['title' => 'Participantes Bonificados - WebCurso']);
     }
 }

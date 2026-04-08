@@ -60,6 +60,8 @@ php artisan candidatos:enviar-recordatorios --dry-run  # Preview sin enviar
 php artisan candidatos:enviar-resumen                  # Resumen diario al admin
 php artisan moodle:importar-cursos                     # Importar cursos desde CSV
 php artisan webcurso:import-legacy                     # Importar datos del sistema legacy
+php artisan alumnos:importar-bonificados               # Crear alumnos desde participantes_bonificados + legacy
+php artisan alumnos:importar-bonificados --dry-run     # Preview sin insertar
 ```
 
 ## Testing
