@@ -269,6 +269,22 @@ class Candidato extends Model
     }
 
     /**
+     * Teléfono normalizado en formato E.164 para España (+34XXXXXXXXX).
+     * Soporta formatos: 971435090, 0034916590303, +34915489870
+     */
+    public function getTelefonoE164Attribute(): ?string
+    {
+        if (!$this->telefono) {
+            return null;
+        }
+
+        $numero = preg_replace('/[\s\-\.]/', '', $this->telefono);
+        $numero = preg_replace('/^(\+34|0034)/', '', $numero);
+
+        return '+34' . $numero;
+    }
+
+    /**
      * Obtener nombre de la entidad (empresa o contacto)
      */
     public function getNombreEntidadAttribute(): string

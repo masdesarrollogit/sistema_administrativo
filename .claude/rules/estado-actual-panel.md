@@ -1,11 +1,12 @@
 # Estado actual del Panel
 
-Snapshot del estado de desarrollo. Ultima actualizacion: abril 2026.
+Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 
 ## Modulos completados
 
 ### Gestion de candidatos
-- **CandidatosIndex**: listado paginado (15/pagina), busqueda por nombre/email/telefono/razon_social de empresa, filtros por tipo y estatus. Oculta desactivados y cancelados por defecto. Boton eliminar candidato (elimina requisitos y archivos adjuntos asociados)
+- **CandidatosIndex**: listado paginado (15/pagina), busqueda por nombre/email/telefono/razon_social de empresa, filtros por tipo y estatus. Oculta desactivados y cancelados por defecto. Boton eliminar candidato (elimina requisitos y archivos adjuntos asociados). **Icono de telefono clicable** junto al nombre del candidato (enlace `tel:` para integracion con Momena u otra app VoIP)
+- **Candidato model**: accessor `telefono_e164` — normaliza el telefono a formato E.164 (`+34XXXXXXXXX`) aceptando cualquier variante guardada (`971435090`, `0034916590303`, `+34915489870`, etc.). Elimina espacios, guiones y puntos antes de normalizar
 - **CandidatoForm**: crear/editar candidato. Autocompletado de empresa segun tipo. Auto-crea empresa si no existe (firstOrCreate). **Campo "nombre de curso" eliminado** — ya no existe en el formulario
 - **CandidatoEstatus**: gestion detallada — requisitos, archivos adjuntos, configuracion de recordatorios, pausar/reactivar/desactivar. Boton **"Completar todos"** para marcar todos los requisitos pendientes de una vez
 - Estados del candidato: `pendiente`, `completo`, `cancelado`, `pausado`, `desactivado`
