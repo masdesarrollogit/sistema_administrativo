@@ -43,10 +43,40 @@
                         <option value="">Todos</option>
                         <option value="fundae">Con grupos FUNDAE</option>
                         <option value="autonomo">Autónomos (2x1)</option>
+                        <option value="legacy">Con historial legacy</option>
                     </select>
                 </div>
                 <div class="flex items-end">
                     <button wire:click="limpiarFiltros" class="text-sm text-indigo-600 hover:text-indigo-800">Limpiar filtros</button>
+                </div>
+            </div>
+
+            {{-- Filtros por fechas --}}
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mt-3 pt-3 border-t border-gray-100">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Año del curso</label>
+                    <select wire:model.live="filtroAno"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="">Todos los años</option>
+                        @foreach($aniosDisponibles as $year)
+                            <option value="{{ $year }}">{{ $year }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Desde</label>
+                    <input type="date" wire:model.live="filtroDesde"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Hasta</label>
+                    <input type="date" wire:model.live="filtroHasta"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div class="md:col-span-3 flex items-end">
+                    <p class="text-xs text-gray-500">
+                        Filtra alumnos con cursos cuya fecha de inicio cumpla el criterio. Busca en grupos FUNDAE, participantes bonificados, autónomos y historial legacy.
+                    </p>
                 </div>
             </div>
         </div>
@@ -111,7 +141,13 @@
                                             {{ $alumno->autonomos_total }} autónomo{{ $alumno->autonomos_total > 1 ? 's' : '' }}
                                         </span>
                                     @endif
-                                    @if($alumno->grupos_total == 0 && $alumno->bonificados_total == 0 && $alumno->autonomos_total == 0)
+                                    @if($alumno->legacy_total > 0)
+                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-violet-100 text-violet-700"
+                                              title="Cursos realizados en sistema legacy webcourses2014">
+                                            {{ $alumno->legacy_total }} legacy
+                                        </span>
+                                    @endif
+                                    @if($alumno->grupos_total == 0 && $alumno->bonificados_total == 0 && $alumno->autonomos_total == 0 && $alumno->legacy_total == 0)
                                         <span class="text-xs text-gray-400">—</span>
                                     @endif
                                 </div>
@@ -128,7 +164,7 @@
                                             class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
                                         Editar
                                     </button>
-                                    @if($alumno->grupos_total > 0 || $alumno->autonomos_total > 0 || $alumno->bonificados_total > 0)
+                                    @if($alumno->grupos_total > 0 || $alumno->autonomos_total > 0 || $alumno->bonificados_total > 0 || $alumno->legacy_total > 0)
                                         <button wire:click="abrirModalGrupos({{ $alumno->id }})"
                                                 class="text-gray-500 hover:text-gray-700 text-sm">
                                             Historial
@@ -481,6 +517,86 @@
                                                 <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Error</span>
                                             @else
                                                 <span class="text-xs text-gray-400">Pendiente</span>
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                @endif
+
+                @if($legacyDelAlumno && $legacyDelAlumno->isNotEmpty())
+                    <div class="mt-6">
+                        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
+                            <span class="inline-flex px-2 py-0.5 rounded text-xs bg-violet-100 text-violet-700">LEGACY</span>
+                            Historial webcourses2014
+                        </h3>
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Curso (legacy)</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Acción formativa</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Grupo</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fechas</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                @foreach($legacyDelAlumno as $cl)
+                                    @php
+                                        $accionPanel = $cl->formation_group_alpha ? ($accionesPorNumero[$cl->formation_group_alpha] ?? null) : null;
+                                    @endphp
+                                    <tr class="hover:bg-gray-50">
+                                        <td class="px-4 py-3">
+                                            <div class="font-medium text-gray-900">{{ $cl->curso_titulo ?? '—' }}</div>
+                                            <div class="text-xs text-gray-500">
+                                                @if($cl->curso_short_name) {{ $cl->curso_short_name }} · @endif
+                                                {{ $cl->curso_horas ? $cl->curso_horas.'h' : '' }}
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            @if($accionPanel)
+                                                <div class="font-medium text-gray-900">{{ $accionPanel->denominacion }}</div>
+                                                <div class="text-xs text-gray-500">Acción Nº {{ $accionPanel->numero_accion }} · {{ $accionPanel->horas }}h</div>
+                                            @elseif($cl->formation_group_alpha)
+                                                <span class="inline-flex px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-700"
+                                                      title="Acción Nº {{ $cl->formation_group_alpha }} no encontrada en el Panel">
+                                                    Acción {{ $cl->formation_group_alpha }} (no en Panel)
+                                                </span>
+                                            @else
+                                                <span class="text-xs text-gray-400">—</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3 text-gray-700">
+                                            @if($cl->formation_group_alpha && $cl->formation_group_number)
+                                                @if($cl->grupo_id_fundae)
+                                                    <span class="text-xs text-gray-500 font-mono">({{ $cl->grupo_id_fundae }})</span>
+                                                @endif
+                                                <span class="inline-flex px-2 py-0.5 text-xs font-mono font-semibold rounded bg-violet-50 text-violet-700">
+                                                    {{ $cl->formation_group_alpha }}/{{ $cl->formation_group_number }}
+                                                </span>
+                                                @if($cl->origen_enriquecimiento)
+                                                    <div class="text-[10px] text-gray-400 mt-0.5" title="Origen del dato">
+                                                        @if($cl->origen_enriquecimiento === 'grupos_fundae')
+                                                            via grupos FUNDAE
+                                                        @elseif($cl->origen_enriquecimiento === 'participantes_bonificados')
+                                                            via participantes bonificados
+                                                        @endif
+                                                    </div>
+                                                @endif
+                                            @elseif($cl->formation_group_number)
+                                                <span class="text-xs text-gray-700">Grupo {{ $cl->formation_group_number }}</span>
+                                            @else
+                                                <span class="text-xs text-gray-400">—</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3 text-gray-700 text-xs">{{ $cl->legacy_company_text ?? '—' }}</td>
+                                        <td class="px-4 py-3 text-gray-700">
+                                            {{ $cl->fecha_inicio?->format('d/m/Y') ?? '—' }}
+                                            @if($cl->fecha_fin)
+                                                <span class="text-gray-400">→</span>
+                                                {{ $cl->fecha_fin->format('d/m/Y') }}
                                             @endif
                                         </td>
                                     </tr>

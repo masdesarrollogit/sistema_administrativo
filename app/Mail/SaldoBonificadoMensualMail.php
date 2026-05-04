@@ -17,32 +17,35 @@ class SaldoBonificadoMensualMail extends Mailable
     public string $cif;
     public string $razonSocial;
     public string $saldoFormateado;
+    /** @var array<int, string> */
+    public array $emailsCc;
 
     public function __construct(
         string $nombreParticipante,
         string $cif,
         string $razonSocial,
-        string $saldoFormateado
+        string $saldoFormateado,
+        array $emailsCc = []
     ) {
         $this->nombreParticipante = $nombreParticipante;
         $this->cif                = $cif;
         $this->razonSocial        = $razonSocial;
         $this->saldoFormateado    = $saldoFormateado;
+        $this->emailsCc           = array_values(array_filter($emailsCc));
 
         $this->mailer('saldos');
     }
 
     public function envelope(): Envelope
     {
+        $cc = array_map(fn (string $email) => new Address($email), $this->emailsCc);
+
         return new Envelope(
             from: new Address('saldoswebcurso@gmail.com', 'WebCurso'),
             replyTo: [
                 new Address('administracion@webcurso.es', 'Administración WebCurso'),
             ],
-            cc: [
-                new Address('administracion@webcurso.es', 'Administración'),
-                new Address('webcurso@webcurso.es', 'WebCurso'),
-            ],
+            cc: $cc,
             subject: "{$this->razonSocial} - Saldo disponible para formación bonificada",
         );
     }

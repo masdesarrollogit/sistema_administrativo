@@ -3,6 +3,7 @@
 namespace App\Livewire\Webcurso;
 
 use App\Services\Webcurso\CsvImportService;
+use Illuminate\Support\Facades\Artisan;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -18,6 +19,7 @@ class ImportarCsv extends Component
     public array $logs = [];
     public bool $procesando = false;
     public ?array $resultado = null;
+    public ?string $resumenEnriquecimiento = null;
 
     protected $rules = [
         'archivoEmpresas'            => 'nullable|file|mimes:csv,txt,xls,xlsx|max:20480',
@@ -86,6 +88,7 @@ class ImportarCsv extends Component
         }
 
         // Procesar participantes bonificados (XLS)
+        $participantesProcesados = false;
         if ($this->archivoParticipantes) {
             $resultadoParticipantes = $service->importarParticipantes(
                 $this->archivoParticipantes
@@ -93,6 +96,7 @@ class ImportarCsv extends Component
             $this->logs = array_merge($this->logs, $resultadoParticipantes['logs']);
             $totalProcesados += $resultadoParticipantes['procesados'];
             $totalErrores += $resultadoParticipantes['errores'];
+            $participantesProcesados = true;
         }
 
         // Procesar acciones formativas (XLS de FUNDAE)
@@ -110,6 +114,16 @@ class ImportarCsv extends Component
             'errores'    => $totalErrores,
         ];
 
+        // Auto-enriquecimiento: tras importar participantes, sincronizar alumnos con datos del pool legacy
+        if ($participantesProcesados) {
+            try {
+                Artisan::call('alumnos:importar-bonificados', ['--force' => true]);
+                $this->resumenEnriquecimiento = trim(Artisan::output());
+            } catch (\Exception $e) {
+                $this->resumenEnriquecimiento = 'Error en enriquecimiento automático: ' . $e->getMessage();
+            }
+        }
+
         $this->procesando = false;
         $this->archivoEmpresas = null;
         $this->archivoGrupos = null;
@@ -121,7 +135,7 @@ class ImportarCsv extends Component
 
     public function limpiar(): void
     {
-        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'archivoAccionesFormativas', 'logs', 'resultado']);
+        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'archivoAccionesFormativas', 'logs', 'resultado', 'resumenEnriquecimiento']);
         $this->resetValidation();
     }
 

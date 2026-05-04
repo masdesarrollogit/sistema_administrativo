@@ -61,17 +61,65 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 - Comando `webcurso:import-legacy` para migrar datos desde base de datos webcourses2014
 - Soporte para tablas historicas con flag `--anterior`
 
-### Importacion de alumnos bonificados (desarrollado 2026-04-07)
-- Comando `alumnos:importar-bonificados` — cruza `participantes_bonificados` (FUNDAE) con `webcourses2014.tbl_member` (legacy) para crear alumnos completos
-- Cruce por NIF: `participantes_bonificados.nif_participante` ↔ `tbl_member.personal_id` (NO `nid`, que tiene datos basura)
-- Datos del legacy: nombre, apellidos, email, telefono, fecha nacimiento, NISS, nivel estudios, categoria profesional, grupo cotizacion
-- Mapeos automaticos: `level_of_studies` (texto) → codigo FUNDAE 1-10, `professional_category` (texto) → codigo 1-5, `listed_group` → grupo cotizacion 1-11
+### Importacion de alumnos bonificados (desarrollado 2026-04-07, refactor 2026-05-03)
+- Comando `alumnos:importar-bonificados` — cruza `participantes_bonificados` (FUNDAE) con la tabla local `alumnos_legacy_pool` (snapshot del legacy) para crear alumnos completos
+- Cruce por NIF: `participantes_bonificados.nif_participante` ↔ `alumnos_legacy_pool.nif`
+- **Fallback por nombre+empresa** cuando NIF FUNDAE no coincide con NIF legacy (caso real: Juan Sanchez `74848858G` FUNDAE vs `44818858J` legacy)
+- **Alumno mínimo + flag `datos_pendientes=true`** cuando un NIF no se encuentra en pool ni por nombre — quedan visibles para que admin complete manualmente
+- Datos del pool: nombre, apellidos, email, telefono, fecha nacimiento, NISS, nivel estudios, categoria profesional, grupo cotizacion
+- Mapeos automaticos en trait `LegacyMappings`: `level_of_studies` (texto) → codigo FUNDAE 1-10, `professional_category` → 1-5, `listed_group` → grupo cotizacion 1-11
 - Separacion automatica de apellidos (`last_name` → `apellido1` + `apellido2`), limpieza de sufijos legacy como "(REPASO)"
 - Busqueda de `empresa_id` por CIF del participante bonificado
 - Flags: `--dry-run` (preview sin insertar), `--force` (actualizar existentes)
-- Idempotente: UPSERT por NIF+empresa_id, re-ejecutar no crea duplicados
-- Resultado inicial: 43 alumnos creados (42 con datos completos del legacy, 1 con datos minimos sin match)
+- Idempotente: UPSERT por NIF+empresa_id; alumnos sin email ni datos pendientes se completan al re-ejecutar
+- **Auto-ejecución**: tras subir XLS de participantes en `/webcurso/importar-csv` se invoca el comando automáticamente y muestra resumen al usuario
+
+### Migración masiva legacy → pool local (desarrollado 2026-05-03)
+- Comando `alumnos:migrar-legacy` — snapshot one-shot de `webcourses2014.tbl_member` a la nueva tabla local `alumnos_legacy_pool` (3,030 NIFs únicos válidos)
+- **Fase A (pool)**: por cada NIF persona válido en legacy (formato `^[0-9]{8}[A-Z]$` o NIE), UPSERT en pool con datos personales + `legacy_nid`, `legacy_company_text`, `legacy_cif_resuelto`
+- **Fase B (alumnos directos)**: para los NIFs cuyo CIF empresa se puede resolver, crear alumno directo en `alumnos`. Resolución multi-fuente del CIF:
+  - **a)** `tbl_member.nid` ↔ `empresas.cif` (registros recientes — caso Juan, ~284 alumnos)
+  - **b)** `tbl_member.company` con formato CIF ↔ `empresas.cif` (registros antiguos — caso Xavier Vidal)
+  - **c)** Fuzzy match `tbl_member.company` ↔ `empresas.razon_social` normalizado (~5 alumnos)
+- **Anti-duplicados**: detecta homónimos (mismo nombre+apellido1+empresa, NIF distinto) y enriquece el alumno existente en lugar de crear nuevo
+- Flags: `--dry-run`, `--force`, `--solo-pool`, `--solo-alumnos`, `--sin-fuzzy-razon-social`, `--limit=N`
+- Resultado típico: 3,030 entradas en pool, ~289 alumnos nuevos creados, ~2,694 NIFs en pool sin empresa derivable (quedan disponibles cuando aparezca su CIF en futuros XLS FUNDAE)
+- **Conexión legacy se usa solo en este comando** — el flujo regular ya no consulta webcourses2014 en vivo
 - Conexion legacy: reutiliza credenciales MySQL principales apuntando a DB `webcourses2014`
+
+### Vista Participantes Bonificados — banner + filtros (mejorado 2026-05-03)
+- Banner amarillo arriba del listado cuando hay participantes sin email registrado: muestra conteo y botón "Reejecutar enriquecimiento" que invoca `alumnos:importar-bonificados --force`
+- Badge "📧 sin email" en cada fila sin email; badge "⚠ datos pendientes" en filas cuyo alumno tenga `datos_pendientes=true`
+- Filtro nuevo `filtroSinEmail` (toggle) para listar solo participantes sin email registrado en alumnos
+
+### Historial de cursos legacy (desarrollado 2026-05-03)
+- Comando: la **Fase D** del comando `alumnos:migrar-legacy` (o `--solo-cursos`) replica `webcourses2014.tbl_member_courses` JOIN `tbl_member` JOIN `tbl_courses` a la tabla local `alumnos_legacy_cursos`
+- Resultado: **4,092 entradas** procesadas, **2,994 NIFs únicos** con historial
+- Modelo `AlumnoLegacyCurso` con relación inversa `Alumno::cursosLegacy()` (HasMany por NIF, igual patrón que `participantesBonificados`)
+- Campos importados: nif, course_id, curso_titulo, curso_short_name, curso_horas, fecha_inicio, fecha_fin, estado_curso (Running/Completed/Closed/Upcoming), resultado (Pass/Fail/Not Declared), formation_group_alpha, formation_group_number, legacy_company_text, legacy_cif_resuelto, source_mc_id, source_mem_id
+- En el modal Historial del alumno aparece como **"LEGACY · Historial webcourses2014"** con columnas: Curso, Acción formativa, Grupo, Empresa, Fechas (sin Estado ni Resultado — esos pertenecen al modelo legacy)
+- Badge "N legacy" violeta en la columna Grupos del listado de alumnos
+- Filtro Tipo: opción "Con historial legacy" para listar solo alumnos con cursos del legacy
+
+### Enriquecimiento acción/grupo cursos legacy (desarrollado 2026-05-03)
+- Comando `alumnos:enriquecer-cursos-legacy` — rellena `formation_group_alpha`, `formation_group_number` y `grupo_id_fundae` para cursos legacy que migraron sin esa info
+- **Estrategia 1 — vía tabla `grupos`**: JOIN por `empresa.cif`, fechas (inicio/fin) y nombre del alumno en `denominacion`. Toma `codigo_grupo_accion_formativa` (acción), `codigo_grupo` (grupo) y `grupo_id`. Resultado: ~87 enriquecidos
+- **Estrategia 2 — vía `participantes_bonificados`**: cruce por NIF + fechas exactas, parsea `id_codigo_grupo` con regex `/(N) accion/grupo/`. Resultado: ~20 enriquecidos
+- Campo `origen_enriquecimiento` registra la fuente (`grupos_fundae` o `participantes_bonificados`) — visible en la UI como leyenda gris
+- Auto-ejecución: el comando se invoca automáticamente como **Fase E** dentro de `alumnos:migrar-legacy` (tras Fase D)
+- Flags: `--dry-run`, `--force` (sobrescribe acción/grupo existente)
+- En el modal Historial cada fila muestra el formato `(grupo_id) acción/grupo` (ej: `(75143) 201/1`) cuando los datos están disponibles, igual al formato de FUNDAE
+- Cuando `formation_group_alpha` matchea con `acciones_formativas.numero_accion` del Panel, se muestra el nombre completo de la acción (ej: "Contabilidad total 60h a")
+
+### AlumnosIndex — filtros por fechas (desarrollado 2026-05-03)
+- Tres filtros nuevos en `/webcurso/alumnos`:
+  - **Año del curso** (dropdown con años disponibles 2018-2026, generado dinámicamente)
+  - **Desde** (date picker — filtra por fecha_inicio >= valor)
+  - **Hasta** (date picker — filtra por fecha_inicio <= valor)
+- Los filtros buscan en las **4 fuentes** simultáneamente: `gruposFormativos`, `participantesBonificados`, `matriculasAutonomas`, `cursosLegacy` (via `whereHas` con OR)
+- Combinables: año + desde + hasta se aplican como AND a cada subquery
+- Persisten en URL (queryString) y se reinician con "Limpiar filtros"
+- Implementación con eager generación de `aniosDisponibles` mediante UNION de `YEAR(fecha_inicio)` de las 4 tablas
 
 ---
 
@@ -197,12 +245,12 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 
 | Aspecto | Cantidad |
 |---|---|
-| Modelos | 21 |
+| Modelos | 23 (+ AlumnoLegacyPool, AlumnoLegacyCurso, BonificadoEmailExclusion) |
 | Componentes Livewire | 13 |
 | Clases Mail | 5 |
-| Comandos Artisan | 5 |
+| Comandos Artisan | 8 (+ alumnos:migrar-legacy, alumnos:enriquecer-cursos-legacy) |
 | Servicios | 3 (CsvImportService, FundaeXmlService, MoodleService) |
-| Migraciones | 32 |
+| Migraciones | 36 |
 | Configs de dominio | 3 |
 
 ---
@@ -243,10 +291,16 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 - Descripcion FUNDAE del grupo: truncada a 100 chars (limite XSD t_cadena100). Formato: `{CIF} {empresa} {alumno} {curso} {horas}h {tramo}{iniciales_tutor}`
 - denominacion_limpia: regex corregido para eliminar horas con o sin codigo de plataforma al final (evita "80h 80h" en descripcion XML)
 
-- Importacion de alumnos bonificados: cruce por NIF entre `participantes_bonificados` (FUNDAE) y `tbl_member.personal_id` (legacy webcourses2014). Campo `nid` del legacy tiene datos basura ("123456789"), no usar
+- Importacion de alumnos bonificados: el flujo regular consulta la tabla local `alumnos_legacy_pool` (no webcourses2014 en vivo). El comando one-shot `alumnos:migrar-legacy` mantiene esa tabla actualizada
+- Resolución multi-fuente del CIF empresa en legacy (corrige nota previa errónea sobre `nid`): el campo "ID" del formulario antiguo guarda el CIF de empresa en `tbl_member.nid` (registros recientes, caso Juan) o en `tbl_member.company` con formato CIF (registros antiguos, caso Xavier). 146/189 empresas Panel (77%) tienen alumnos en legacy
+- NIF persona en legacy y FUNDAE puede divergir para la misma persona: el comando de enriquecimiento tiene fallback por nombre+empresa para resolver estos casos sin crear duplicados
 - Relacion Alumno→ParticipanteBonificado: HasMany por NIF (no FK), cruce de tablas por columna string. Sin indice en `nif_participante` (tabla pequena, rendimiento aceptable)
 - AlumnosIndex historial: tres secciones independientes (grupos Panel, bonificados importados, autonomos) pueden coexistir. Antes eran mutuamente excluyentes (`@elseif`)
 - Conexion legacy: no se usa usuario `webcourses2014` (no existe en MySQL). Se reutilizan credenciales principales (`sail/password`) apuntando a DB `webcourses2014`
+- Historial cursos legacy: tabla `alumnos_legacy_cursos` desacoplada de `alumnos` (vinculación HasMany por NIF). Permite tener historial de NIFs que aún no tienen alumno en el Panel y se vinculan automáticamente cuando aparece el NIF en `alumnos`
+- Enriquecimiento acción/grupo dos vías: tabla `grupos` (importada FUNDAE) primero (más confiable, 87 matches) y `participantes_bonificados` como fallback (parsea `(N) accion/grupo` del `id_codigo_grupo`, 20 matches). Cuando el legacy no tenía `formation_group_alpha/number` rellenados (~3,015 casos), estas dos fuentes recuperan la información via cruce por CIF + fechas + nombre alumno
+- Modal Historial — sección legacy SIN columnas `Estado`/`Resultado`: esos valores (`Running`/`Completed`/`Pass`/`Fail`) son del modelo legacy y rompen la consistencia del modelo actual (estado_grupo: `comunicado`/`en_curso` y estado_moodle: `pendiente`/`matriculado`). Los campos siguen guardados en BD pero no se renderizan
+- Filtros por fechas en AlumnosIndex: año + rango (desde/hasta) buscan en las 4 fuentes (gruposFormativos, participantesBonificados, matriculasAutonomas, cursosLegacy) via OR de `whereHas`. El dropdown de años se genera dinámicamente con UNION de `YEAR(fecha_inicio)` para reflejar siempre datos disponibles
 
 ## Decisiones de diseno pendientes
 

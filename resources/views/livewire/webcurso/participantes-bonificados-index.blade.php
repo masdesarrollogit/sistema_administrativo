@@ -31,6 +31,34 @@
             </span>
         </div>
 
+        {{-- Banner: NIFs sin email --}}
+        @if($stats['sin_email'] > 0 || $stats['datos_pendientes'] > 0)
+            <div class="bg-amber-50 border-l-4 border-amber-400 rounded-xl p-4 mb-6">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div class="text-sm text-amber-800">
+                        <p class="font-semibold mb-1">⚠ Participantes con datos incompletos</p>
+                        <p>
+                            <strong>{{ number_format($stats['sin_email']) }}</strong> participantes sin email registrado en alumnos
+                            @if($stats['datos_pendientes'] > 0)
+                                · <strong>{{ number_format($stats['datos_pendientes']) }}</strong> alumnos marcados como datos pendientes
+                            @endif
+                        </p>
+                    </div>
+                    <button wire:click="reejecutarEnriquecimiento"
+                            wire:loading.attr="disabled"
+                            wire:loading.class="opacity-50 cursor-not-allowed"
+                            wire:target="reejecutarEnriquecimiento"
+                            class="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 text-sm font-semibold transition-colors">
+                        <span wire:loading.remove wire:target="reejecutarEnriquecimiento">🔄 Reejecutar enriquecimiento</span>
+                        <span wire:loading wire:target="reejecutarEnriquecimiento" style="display:none">Procesando...</span>
+                    </button>
+                </div>
+                @if($resumenReenriquecimiento)
+                    <pre class="mt-3 p-3 bg-white text-xs text-gray-700 rounded border border-amber-200 whitespace-pre-wrap max-h-60 overflow-y-auto">{{ $resumenReenriquecimiento }}</pre>
+                @endif
+            </div>
+        @endif
+
         {{-- Panel de email mensual de saldo --}}
         <div class="bg-white rounded-xl shadow-sm p-4 mb-6 border border-blue-100">
             <div class="flex flex-wrap items-center justify-between gap-4">
@@ -48,8 +76,28 @@
                     </h3>
                     <p class="text-xs text-gray-500 mt-1">
                         Envía el saldo de la empresa a cada participante bonificado finalizado que tenga email en la tabla de alumnos.
-                        CC: administracion@webcurso.es, webcurso@webcurso.es
                     </p>
+                    <div class="mt-2 text-xs space-y-1">
+                        @if($proximoEnvio)
+                            <div class="text-gray-700">
+                                📅 <strong>Próximo envío programado:</strong>
+                                {{ $proximoEnvio->format('d/m/Y H:i') }} (Madrid)
+                                <span class="text-gray-400">— en {{ $proximoEnvio->diffForHumans(['parts' => 2, 'syntax' => \Carbon\CarbonInterface::DIFF_ABSOLUTE]) }}</span>
+                            </div>
+                        @endif
+                        <div class="text-gray-700">
+                            📨 <strong>Copias enviadas a:</strong>
+                            <span class="font-mono text-[11px]">empresas.email</span>
+                            @if($ccAdmin)
+                                + <span class="font-mono text-[11px]">{{ $ccAdmin }}</span>
+                            @endif
+                        </div>
+                        @if($modoPrueba)
+                            <div class="text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 inline-block">
+                                🧪 <strong>MODO PRUEBA:</strong> los emails se redirigen a Mailpit, no se envían a destinatarios reales ni a las empresas.
+                            </div>
+                        @endif
+                    </div>
                 </div>
                 <div class="flex gap-2">
                     <button wire:click="enviarEmailSaldoPrueba"
@@ -125,6 +173,12 @@
                     </button>
                 </div>
             </div>
+            <div class="mt-3 flex items-center gap-2">
+                <label class="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" wire:model.live="filtroSinEmail" class="rounded border-gray-300 text-amber-500 focus:ring-amber-500">
+                    Solo participantes <strong class="text-amber-600">sin email</strong>
+                </label>
+            </div>
         </div>
 
         {{-- Paginación superior --}}
@@ -164,6 +218,7 @@
                             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha Fin</th>
                             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado Grupo</th>
                             <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Email</th>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Último envío</th>
                             <th class="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase bg-blue-50">Envío</th>
                         </tr>
                     </thead>
@@ -173,7 +228,14 @@
                                 <td class="px-3 py-2 whitespace-nowrap text-gray-500 text-xs">{{ $p->id }}</td>
                                 <td class="px-3 py-2 whitespace-nowrap font-mono text-gray-900">{{ $p->nif_participante }}</td>
                                 <td class="px-3 py-2 whitespace-nowrap font-mono text-gray-600 text-xs">{{ $p->niss }}</td>
-                                <td class="px-3 py-2 whitespace-nowrap font-semibold text-gray-900">{{ $p->nombre }}</td>
+                                <td class="px-3 py-2 whitespace-nowrap font-semibold text-gray-900">
+                                    {{ $p->nombre }}
+                                    @if(in_array($p->nif_participante, $datosPendientesPorNif ?? []))
+                                        <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700" title="El alumno asociado tiene datos_pendientes=true">
+                                            ⚠ datos pendientes
+                                        </span>
+                                    @endif
+                                </td>
                                 <td class="px-3 py-2 whitespace-nowrap">
                                     <span class="px-2 py-0.5 rounded-full text-[11px] font-bold
                                         {{ $p->estado === 'Finalizado' ? 'bg-green-100 text-green-700' : '' }}
@@ -215,7 +277,21 @@
                                     @if(isset($emailsPorNif[$p->nif_participante]))
                                         <span class="text-gray-700">{{ $emailsPorNif[$p->nif_participante] }}</span>
                                     @else
-                                        <span class="text-gray-400 italic">Sin email</span>
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700" title="No hay alumno con email para este NIF">
+                                            📧 sin email
+                                        </span>
+                                    @endif
+                                </td>
+                                <td class="px-3 py-2 whitespace-nowrap bg-blue-50 text-xs">
+                                    @php $ultimo = $ultimosEnviosPorNif[$p->nif_participante] ?? null; @endphp
+                                    @if($ultimo)
+                                        <span class="text-gray-700"
+                                              title="{{ $ultimo->format('d/m/Y H:i') }} (Madrid)">
+                                            {{ $ultimo->format('d/m/Y') }}
+                                        </span>
+                                        <div class="text-[10px] text-gray-400">{{ $ultimo->diffForHumans() }}</div>
+                                    @else
+                                        <span class="text-gray-400 italic">Nunca</span>
                                     @endif
                                 </td>
                                 <td class="px-3 py-2 whitespace-nowrap bg-blue-50 text-center">
@@ -239,7 +315,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="13" class="px-4 py-12 text-center text-gray-500">
+                                <td colspan="14" class="px-4 py-12 text-center text-gray-500">
                                     <div class="text-4xl mb-3">💰</div>
                                     <p class="font-semibold">No hay participantes bonificados cargados</p>
                                     <p class="text-sm mt-1">

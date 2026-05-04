@@ -204,6 +204,15 @@
             </div>
         @endif
 
+        {{-- Resumen enriquecimiento de alumnos (post participantes) --}}
+        @if($resumenEnriquecimiento)
+            <div class="mt-6 bg-blue-50 border-l-4 border-blue-500 rounded-xl p-6">
+                <h3 class="text-lg font-bold text-blue-900 mb-2">🔄 Enriquecimiento automático de alumnos</h3>
+                <p class="text-sm text-blue-800 mb-3">Tras importar participantes bonificados se sincronizaron los alumnos cruzando con el pool legacy.</p>
+                <pre class="text-xs bg-white text-gray-800 p-3 rounded overflow-x-auto whitespace-pre-wrap">{{ $resumenEnriquecimiento }}</pre>
+            </div>
+        @endif
+
         {{-- Logs --}}
         @if(count($logs) > 0)
             <div class="mt-6 bg-white rounded-xl shadow-sm p-6">

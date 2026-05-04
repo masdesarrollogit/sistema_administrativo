@@ -41,6 +41,30 @@ La tabla del Panel debe sincronizarse con la DB real de Moodle, no con el CSV.
 
 ### Entidades FUNDAE
 ```
+AlumnoLegacyPool (snapshot one-shot de webcourses2014.tbl_member)
+├── nif (UNIQUE) — personal_id legacy normalizado
+├── datos personales: nombre, apellidos, email, telefono, niss, fecha_nacimiento
+├── códigos FUNDAE mapeados: nivel_estudios, categoria_profesional, grupo_cotizacion_tgss
+├── legacy_nid, legacy_company_text, legacy_cif_resuelto (auditoría + lookup CIF empresa)
+├── source_mem_id, imported_at
+└── Cache local que reemplaza queries en vivo a webcourses2014. Poblada por `alumnos:migrar-legacy`.
+
+AlumnoLegacyCurso (snapshot historial cursos webcourses2014.tbl_member_courses)
+├── nif (indexed) — vinculación con Alumno por NIF (no FK, HasMany cross-tabla)
+├── course_id, curso_titulo, curso_short_name, curso_horas — info del curso legacy
+├── fecha_inicio, fecha_fin
+├── estado_curso (Running/Completed/Closed/Upcoming), resultado (Pass/Fail/Not Declared) — guardados pero no renderizados en UI
+├── formation_group_alpha (acción), formation_group_number (grupo), grupo_id_fundae — pueden venir vacíos del legacy y rellenarse vía Fase E
+├── origen_enriquecimiento (`grupos_fundae` | `participantes_bonificados` | NULL)
+├── legacy_company_text, legacy_cif_resuelto
+├── source_mc_id (UNIQUE con nif), source_mem_id, imported_at
+└── 4,092 entradas migradas (2,994 NIFs únicos). Poblada por `alumnos:migrar-legacy --solo-cursos` o flujo completo.
+
+BonificadoEmailExclusion (NIFs excluidos del envío masivo de email saldo)
+├── nif (UNIQUE)
+├── nombre, motivo, excluido_por (FK users)
+└── Gestionado desde `/webcurso/participantes-bonificados` con botón ✅Activo / 🚫Excluido por fila
+
 ParticipanteBonificado (datos importados de XLS FUNDAE)
 ├── hasMany inversa desde Alumno (por nif_participante ↔ alumnos.nif)
 AccionFormativa (importada de AccionesFormativas.xls, UPSERT por numero_accion)

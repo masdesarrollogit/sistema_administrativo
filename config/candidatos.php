@@ -104,5 +104,8 @@ return [
 
         // Email para notificar errores
         'email_errores' => env('BONIFICADOS_EMAIL_ERRORES'),
+
+        // CC fijo a copia administrativa interna en cada email enviado
+        'cc_admin' => env('CANDIDATOS_BONIFICADOS_CC_ADMIN', 'webcurso@webcurso.es'),
     ],
 ];

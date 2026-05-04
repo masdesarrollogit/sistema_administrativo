@@ -60,8 +60,15 @@ php artisan candidatos:enviar-recordatorios --dry-run  # Preview sin enviar
 php artisan candidatos:enviar-resumen                  # Resumen diario al admin
 php artisan moodle:importar-cursos                     # Importar cursos desde CSV
 php artisan webcurso:import-legacy                     # Importar datos del sistema legacy
-php artisan alumnos:importar-bonificados               # Crear alumnos desde participantes_bonificados + legacy
+php artisan alumnos:importar-bonificados               # Crear alumnos desde participantes_bonificados + pool local (auto-trigger tras XLS)
 php artisan alumnos:importar-bonificados --dry-run     # Preview sin insertar
+php artisan alumnos:migrar-legacy                       # One-shot: snapshot tbl_member → alumnos_legacy_pool + alumnos directos + cursos
+php artisan alumnos:migrar-legacy --solo-pool          # Solo poblar alumnos_legacy_pool
+php artisan alumnos:migrar-legacy --solo-alumnos       # Solo crear alumnos a partir del pool
+php artisan alumnos:migrar-legacy --solo-cursos        # Solo poblar alumnos_legacy_cursos (historial)
+php artisan alumnos:enriquecer-cursos-legacy           # Rellena acción/grupo de cursos legacy via tabla `grupos` y `participantes_bonificados`
+php artisan bonificados:enviar-email-saldo             # Cron mensual de email de saldo a participantes
+php artisan bonificados:enviar-email-saldo --dry-run   # Preview sin enviar
 ```
 
 ## Testing

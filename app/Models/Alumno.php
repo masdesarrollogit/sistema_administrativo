@@ -31,6 +31,7 @@ class Alumno extends Model
         'categoria_profesional',
         'jornada_laboral',
         'activo',
+        'datos_pendientes',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class Alumno extends Model
         'categoria_profesional' => 'integer',
         'jornada_laboral' => 'integer',
         'activo' => 'boolean',
+        'datos_pendientes' => 'boolean',
     ];
 
     public function empresa(): BelongsTo
@@ -54,6 +56,11 @@ class Alumno extends Model
     public function participantesBonificados(): HasMany
     {
         return $this->hasMany(ParticipanteBonificado::class, 'nif_participante', 'nif');
+    }
+
+    public function cursosLegacy(): HasMany
+    {
+        return $this->hasMany(AlumnoLegacyCurso::class, 'nif', 'nif');
     }
 
     public function gruposFormativos(): BelongsToMany

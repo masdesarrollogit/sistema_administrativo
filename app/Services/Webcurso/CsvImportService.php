@@ -90,21 +90,25 @@ class CsvImportService
             DB::table($tabla)->truncate();
             $this->log('info', 'Tabla grupos limpiada');
 
-            $filas = $this->leerFilas($archivo);
+            $filas = $this->leerFilas($archivo, [5, 6, 7, 8]);
             $this->log('info', 'Filas detectadas: ' . count($filas));
 
-            foreach ($filas as $data) {
+            foreach ($filas as $i => $data) {
+                $numFila = $i + 2; // +1 por 0-index, +1 por cabecera saltada
+
                 if (count($data) >= 17) {
                     $grupo_id = $this->limpiarDato($data[0] ?? '');
                     $denominacion = $this->limpiarDato($data[4] ?? '');
 
                     if (empty($grupo_id) && empty($denominacion)) {
                         $this->omitidos++;
+                        $this->log('warning', "Fila {$numFila} omitida: grupo_id y denominación vacíos");
                         continue;
                     }
 
                     if ($this->esNoVa($denominacion)) {
                         $this->omitidos++;
+                        $this->log('warning', "Fila {$numFila} omitida (NO VA): grupo_id={$grupo_id}, denominación=" . mb_strimwidth($denominacion, 0, 80, '...'));
                         continue;
                     }
 
@@ -118,10 +122,11 @@ class CsvImportService
                         }
                     } catch (\Exception $e) {
                         $this->errores++;
-                        $this->log('error', "Error en grupo: " . $e->getMessage());
+                        $this->log('error', "Error en grupo (fila {$numFila}): " . $e->getMessage());
                     }
                 } else {
                     $this->omitidos++;
+                    $this->log('warning', "Fila {$numFila} omitida: solo " . count($data) . " columnas (mínimo 17)");
                 }
             }
 
@@ -323,19 +328,21 @@ class CsvImportService
     /**
      * Leer todas las filas de un archivo (CSV o XLS/XLSX).
      * Devuelve un array de arrays, saltando la cabecera.
+     *
+     * @param array<int> $columnasFecha Indices (0-based) de columnas que deben interpretarse como fechas seriales de Excel.
      */
-    public function leerFilas(UploadedFile $archivo): array
+    public function leerFilas(UploadedFile $archivo, array $columnasFecha = []): array
     {
         $extension = strtolower($archivo->getClientOriginalExtension());
 
         if (in_array($extension, ['xls', 'xlsx'])) {
-            return $this->leerFilasXls($archivo);
+            return $this->leerFilasXls($archivo, $columnasFecha);
         }
 
         return $this->leerFilasCsv($archivo);
     }
 
-    protected function leerFilasXls(UploadedFile $archivo): array
+    protected function leerFilasXls(UploadedFile $archivo, array $columnasFecha = []): array
     {
         $spreadsheet = IOFactory::load($archivo->getRealPath());
         $sheet = $spreadsheet->getActiveSheet();
@@ -345,22 +352,24 @@ class CsvImportService
 
         for ($row = 2; $row <= $maxRow; $row++) {
             $fila = [];
+            $colIndex = 0;
             foreach (range('A', $maxCol) as $col) {
                 $cell = $sheet->getCell($col . $row);
                 $value = $cell->getValue();
 
-                // Si es número serial de Excel para fecha, convertir
-                if (is_numeric($value) && $value > 25000 && $value < 60000) {
+                if (in_array($colIndex, $columnasFecha, true) && is_numeric($value) && $value > 25000 && $value < 60000) {
                     try {
                         $dateTime = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float) $value);
                         $fila[] = $dateTime->format('d/m/Y');
+                        $colIndex++;
                         continue;
                     } catch (\Exception $e) {
-                        // No es fecha, usar valor normal
+                        // cae al fallback
                     }
                 }
 
                 $fila[] = trim((string) ($value ?? ''));
+                $colIndex++;
             }
             $filas[] = $fila;
         }
