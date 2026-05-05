@@ -20,9 +20,11 @@
 #   ./scripts/deploy-legacy-prod.sh --skip-pull    # saltar git fetch/pull (codigo ya subido)
 #
 # Requisitos en el servidor:
-#   - mysqldump y mysql disponibles
-#   - usuario MySQL con SELECT sobre webcourses2014
 #   - .env apuntando a la BD de produccion del Panel
+#   - Usuario MySQL con SELECT sobre webcourses2014
+#   - Modo nativo: mysqldump, mysql y php instalados en el host
+#   - Modo Docker: contenedores activos con servicios "laravel.test" y "mysql"
+#                  (autodeteccion; override con PHP_SVC=... MYSQL_SVC=... ./script.sh)
 
 set -euo pipefail
 
@@ -107,6 +109,32 @@ if [ "$AUTO" = false ]; then
     confirm "Confirmas que quieres continuar?" || { warn "Abortado por el usuario."; exit 0; }
 fi
 
+# ---------- Detectar entorno: Docker Compose vs nativo ----------
+USE_DOCKER=false
+PHP_SVC="${PHP_SVC:-laravel.test}"
+MYSQL_SVC="${MYSQL_SVC:-mysql}"
+
+if [ -f "$PROJECT_ROOT/compose.yaml" ] || [ -f "$PROJECT_ROOT/docker-compose.yml" ]; then
+    if command -v docker >/dev/null 2>&1 \
+       && docker compose ps --services --filter "status=running" 2>/dev/null | grep -qx "$PHP_SVC"; then
+        USE_DOCKER=true
+    fi
+fi
+
+if [ "$USE_DOCKER" = true ]; then
+    log "Entorno detectado: Docker Compose (servicios PHP=$PHP_SVC, MySQL=$MYSQL_SVC)"
+    PHP_RUN="docker compose exec -T $PHP_SVC php"
+    COMPOSER_RUN="docker compose exec -T $PHP_SVC composer"
+    MYSQL_RUN="docker compose exec -T $MYSQL_SVC mysql"
+    MYSQLDUMP_RUN="docker compose exec -T $MYSQL_SVC mysqldump"
+else
+    log "Entorno detectado: nativo (php/mysql en host)"
+    PHP_RUN="php"
+    COMPOSER_RUN="composer"
+    MYSQL_RUN="mysql"
+    MYSQLDUMP_RUN="mysqldump"
+fi
+
 # ---------- Paso 0: verificar acceso a webcourses2014 ----------
 log "Verificando acceso a webcourses2014..."
 DB_CONN="$(leer_env DB_CONNECTION)"
@@ -121,7 +149,15 @@ LEGACY_DB="${LEGACY_DB:-webcourses2014}"
 log "BD Panel:  ${DB_NAME} en ${DB_HOST}:${DB_PORT:-3306}"
 log "BD Legacy: ${LEGACY_DB}"
 
-if ! mysql -h "$DB_HOST" -P "${DB_PORT:-3306}" -u "$DB_USER" -p"$DB_PASS" -e "SELECT COUNT(*) FROM ${LEGACY_DB}.tbl_member;" >/dev/null 2>&1; then
+# En modo Docker, ejecutamos mysql client DENTRO del contenedor mysql,
+# por lo que NO se pasa -h (se conecta al socket local del propio contenedor).
+if [ "$USE_DOCKER" = true ]; then
+    MYSQL_AUTH="-u $DB_USER -p$DB_PASS"
+else
+    MYSQL_AUTH="-h $DB_HOST -P ${DB_PORT:-3306} -u $DB_USER -p$DB_PASS"
+fi
+
+if ! $MYSQL_RUN $MYSQL_AUTH -e "SELECT COUNT(*) FROM ${LEGACY_DB}.tbl_member;" >/dev/null 2>&1; then
     err "No se puede acceder a ${LEGACY_DB}.tbl_member con las credenciales del .env"
     err "Verifica permisos: GRANT SELECT ON ${LEGACY_DB}.* TO '${DB_USER}'@'%';"
     exit 1
@@ -134,9 +170,7 @@ if [ "$SKIP_BACKUP" = true ]; then
     confirm "Continuar sin backup?" || { warn "Abortado."; exit 0; }
 else
     log "Paso 1/8: Backup de ${DB_NAME} -> ${BACKUP_FILE}"
-    mysqldump \
-        -h "$DB_HOST" -P "${DB_PORT:-3306}" \
-        -u "$DB_USER" -p"$DB_PASS" \
+    $MYSQLDUMP_RUN $MYSQL_AUTH \
         --single-transaction --routines --triggers --quick \
         "$DB_NAME" > "$BACKUP_FILE"
 
@@ -152,14 +186,14 @@ fi
 
 # ---------- Paso 2: Modo mantenimiento ----------
 log "Paso 2/8: Activando modo mantenimiento..."
-php artisan down --render="errors::503" || warn "No se pudo activar mantenimiento (continuando)"
+$PHP_RUN artisan down --render="errors::503" || warn "No se pudo activar mantenimiento (continuando)"
 
 # Trap para asegurar que la app vuelve a levantarse aunque algo falle
 restore_on_exit() {
     local code=$?
     if [ $code -ne 0 ]; then
         warn "El script termino con error (codigo $code). Levantando app..."
-        php artisan up || true
+        $PHP_RUN artisan up || true
     fi
 }
 trap restore_on_exit EXIT
@@ -178,25 +212,25 @@ else
     git pull origin "$CURRENT_BRANCH"
 fi
 
-composer install --no-dev --optimize-autoloader --no-interaction
+$COMPOSER_RUN install --no-dev --optimize-autoloader --no-interaction
 
-php artisan config:clear
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
+$PHP_RUN artisan config:clear
+$PHP_RUN artisan config:cache
+$PHP_RUN artisan route:cache
+$PHP_RUN artisan view:cache
 ok "Codigo actualizado y caches reconstruidos"
 
 # ---------- Paso 4: Migraciones ----------
 log "Paso 4/8: php artisan migrate --force"
-php artisan migrate --force
+$PHP_RUN artisan migrate --force
 ok "Migraciones aplicadas"
 
-php artisan migrate:status | tail -10 | tee -a "$LOG_FILE"
+$PHP_RUN artisan migrate:status | tail -10 | tee -a "$LOG_FILE"
 
 # ---------- Paso 5: Dry-run ----------
 log "Paso 5/8: Dry-run de alumnos:migrar-legacy (preview, no escribe nada)"
 echo "----- INICIO DRY-RUN -----" | tee -a "$LOG_FILE"
-php artisan alumnos:migrar-legacy --dry-run 2>&1 | tee -a "$LOG_FILE"
+$PHP_RUN artisan alumnos:migrar-legacy --dry-run 2>&1 | tee -a "$LOG_FILE"
 echo "----- FIN DRY-RUN -----" | tee -a "$LOG_FILE"
 
 # ---------- Paso 6: Confirmacion ----------
@@ -209,7 +243,7 @@ echo
 if ! confirm "Procedo con la ejecucion REAL (sin --force, preserva existentes)?"; then
     warn "Abortado por el usuario tras dry-run."
     log "Levantando app..."
-    php artisan up
+    $PHP_RUN artisan up
     trap - EXIT
     exit 0
 fi
@@ -217,13 +251,13 @@ fi
 # ---------- Paso 7: Ejecucion real ----------
 log "Paso 7/8: Ejecucion real de alumnos:migrar-legacy (SIN --force)"
 echo "----- INICIO EJECUCION REAL -----" | tee -a "$LOG_FILE"
-php artisan alumnos:migrar-legacy 2>&1 | tee -a "$LOG_FILE"
+$PHP_RUN artisan alumnos:migrar-legacy 2>&1 | tee -a "$LOG_FILE"
 echo "----- FIN EJECUCION REAL -----" | tee -a "$LOG_FILE"
 ok "Migracion legacy ejecutada"
 
 # ---------- Paso 8: Verificacion ----------
 log "Paso 8/8: Verificacion post-ejecucion"
-php artisan tinker --execute="
+$PHP_RUN artisan tinker --execute="
 echo 'Alumnos totales:           '.\App\Models\Alumno::count().PHP_EOL;
 echo 'Alumnos datos_pendientes:  '.\App\Models\Alumno::where('datos_pendientes', true)->count().PHP_EOL;
 echo 'Pool legacy:               '.\App\Models\AlumnoLegacyPool::count().PHP_EOL;
@@ -233,7 +267,7 @@ echo 'Cursos legacy enriquecidos:'.\App\Models\AlumnoLegacyCurso::whereNotNull('
 
 # ---------- Salir de mantenimiento ----------
 log "Levantando app..."
-php artisan up
+$PHP_RUN artisan up
 trap - EXIT
 
 echo
@@ -244,5 +278,10 @@ log "Log: $LOG_FILE"
 [ "$SKIP_BACKUP" = false ] && log "Backup: $BACKUP_FILE"
 echo "===========================================" | tee -a "$LOG_FILE"
 echo
-warn "Si necesitas rollback de esquema:  php artisan migrate:rollback --step=5 --force"
-warn "Si necesitas restaurar la BD:      mysql ... < $BACKUP_FILE"
+if [ "$USE_DOCKER" = true ]; then
+    warn "Rollback de esquema:        docker compose exec $PHP_SVC php artisan migrate:rollback --step=5 --force"
+    warn "Restaurar BD desde backup:  docker compose exec -T $MYSQL_SVC mysql $MYSQL_AUTH $DB_NAME < $BACKUP_FILE"
+else
+    warn "Rollback de esquema:        php artisan migrate:rollback --step=5 --force"
+    warn "Restaurar BD desde backup:  mysql ... < $BACKUP_FILE"
+fi
