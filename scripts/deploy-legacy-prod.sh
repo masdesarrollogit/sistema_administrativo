@@ -17,6 +17,7 @@
 #   ./scripts/deploy-legacy-prod.sh                # interactivo (recomendado)
 #   ./scripts/deploy-legacy-prod.sh --auto         # sin confirmaciones (NO recomendado)
 #   ./scripts/deploy-legacy-prod.sh --skip-backup  # saltar backup (solo si ya tienes uno)
+#   ./scripts/deploy-legacy-prod.sh --skip-pull    # saltar git fetch/pull (codigo ya subido)
 #
 # Requisitos en el servidor:
 #   - mysqldump y mysql disponibles
@@ -37,12 +38,14 @@ LOG_FILE="$BACKUP_DIR/deploy_legacy_${TIMESTAMP}.log"
 
 AUTO=false
 SKIP_BACKUP=false
+SKIP_PULL=false
 for arg in "$@"; do
     case "$arg" in
         --auto) AUTO=true ;;
         --skip-backup) SKIP_BACKUP=true ;;
+        --skip-pull) SKIP_PULL=true ;;
         -h|--help)
-            sed -n '2,25p' "$0"
+            sed -n '2,26p' "$0"
             exit 0
             ;;
     esac
@@ -167,8 +170,13 @@ log "Paso 3/8: git pull + composer + cache..."
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 log "Rama actual: $CURRENT_BRANCH"
 
-git fetch --all
-git pull origin "$CURRENT_BRANCH"
+if [ "$SKIP_PULL" = true ]; then
+    warn "--skip-pull activo: omito git fetch/pull (codigo ya subido manualmente)"
+    log "HEAD actual: $(git rev-parse --short HEAD) - $(git log -1 --pretty=%s)"
+else
+    git fetch --all
+    git pull origin "$CURRENT_BRANCH"
+fi
 
 composer install --no-dev --optimize-autoloader --no-interaction
 
