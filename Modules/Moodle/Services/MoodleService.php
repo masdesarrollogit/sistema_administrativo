@@ -141,12 +141,58 @@ class MoodleService
     }
 
     /**
-     * Obtener las notas del usuario.
+     * Obtener datos de varios usuarios por sus IDs en una sola llamada.
+     * Devuelve para cada usuario, entre otros: id, username, email, lastaccess, firstaccess, suspended.
+     *
+     * @param int[] $userIds
+     * @return array<int, array> indexado por moodle user id
+     */
+    public function getUsersByIds(array $userIds): array
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+
+        if (empty($userIds)) {
+            return [];
+        }
+
+        $params = ['field' => 'id'];
+        foreach ($userIds as $i => $id) {
+            $params["values[{$i}]"] = $id;
+        }
+
+        $result = $this->call('core_user_get_users_by_field', $params);
+
+        $byId = [];
+        foreach ($result as $user) {
+            if (isset($user['id'])) {
+                $byId[(int) $user['id']] = $user;
+            }
+        }
+
+        return $byId;
+    }
+
+    /**
+     * Obtener las notas del usuario (formato HTML embebido en JSON, legado).
      */
     public function getUserGrades(int $userId): array
     {
         return $this->call('gradereport_user_get_grades_table', [
             'userid' => $userId,
+        ]);
+    }
+
+    /**
+     * Obtener los grade items de un usuario en un curso (JSON estructurado).
+     * Devuelve cada test/actividad/total con grade, grademax, percentageformatted, etc.
+     *
+     * @return array Estructura de Moodle: { usergrades: [{ gradeitems: [...] }] }
+     */
+    public function getUserGradeItems(int $userId, int $courseId): array
+    {
+        return $this->call('gradereport_user_get_grade_items', [
+            'courseid' => $courseId,
+            'userid'   => $userId,
         ]);
     }
 
@@ -199,6 +245,17 @@ class MoodleService
         }
 
         $this->call('core_group_add_group_members', $params);
+    }
+
+    /**
+     * Listar todas las categorías Moodle.
+     *
+     * @return array Lista de categorías con 'id', 'name', 'parent', 'coursecount', ...
+     */
+    public function getCategories(): array
+    {
+        $result = $this->call('core_course_get_categories', []);
+        return is_array($result) ? $result : [];
     }
 
     /**

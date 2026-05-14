@@ -70,6 +70,16 @@ class Alumno extends Model
             ->withTimestamps();
     }
 
+    public function progresoMoodle(): HasMany
+    {
+        return $this->hasMany(AlumnoProgresoMoodle::class, 'alumno_id');
+    }
+
+    public function notificacionesReportes(): HasMany
+    {
+        return $this->hasMany(AlumnoNotificacionLog::class, 'alumno_id');
+    }
+
     public function scopeActivos($query)
     {
         return $query->where('activo', true);
