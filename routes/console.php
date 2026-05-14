@@ -27,6 +27,77 @@ Schedule::command('candidatos:enviar-resumen')
         \Log::error('Error al ejecutar el cron de resumen de candidatos');
     });
 
+// Reportes Moodle Fase 1 — Snapshot diario y notificaciones
+Schedule::command('reportes-moodle:snapshot')
+    ->dailyAt(config('reportes_moodle.snapshot.cron_hora', '02:00'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar el cron snapshot de reportes Moodle');
+    });
+
+Schedule::command('reportes-moodle:notificar-no-conectados')
+    ->dailyAt(config('reportes_moodle.reporte_no_conectados.cron_alumno_hora', '10:00'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación a alumnos no conectados');
+    });
+
+Schedule::command('reportes-moodle:notificar-inactivos')
+    ->dailyAt(config('reportes_moodle.reporte_inactivos.cron_alumno_hora', '10:15'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación a alumnos inactivos (Fase 2)');
+    });
+
+Schedule::command('reportes-moodle:notificar-riesgo-critico')
+    ->dailyAt(config('reportes_moodle.reporte_riesgo_critico.cron_alumno_hora', '10:30'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación a alumnos en riesgo crítico (Fase 3)');
+    });
+
+Schedule::command('reportes-moodle:notificar-pre-cierre')
+    ->dailyAt(config('reportes_moodle.reporte_pre_cierre.cron_alumno_hora', '10:45'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación de Pre-cierre (Fase 4)');
+    });
+
+Schedule::command('reportes-moodle:notificar-apto-sin-examen')
+    ->dailyAt(config('reportes_moodle.reporte_apto_sin_examen.cron_alumno_hora', '11:00'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación de Apto sin examen (Fase 5)');
+    });
+
+Schedule::command('reportes-moodle:notificar-apto')
+    ->dailyAt(config('reportes_moodle.reporte_apto.cron_alumno_hora', '11:15'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación de Apto / Finalizado (Fase 6)');
+    });
+
+Schedule::command('reportes-moodle:detectar-no-aptos')
+    ->dailyAt(config('reportes_moodle.reporte_no_aptos.cron_detectar_hora', '01:30'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar detección de No aptos (Fase 7)');
+    });
+
+Schedule::command('reportes-moodle:notificar-no-aptos')
+    ->dailyAt(config('reportes_moodle.reporte_no_aptos.cron_notificar_hora', '11:30'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación de No aptos / reinicio (Fase 7)');
+    });
+
+Schedule::command('reportes-moodle:notificar-tutores')
+    ->weeklyOn(1, config('reportes_moodle.reporte_no_conectados.cron_tutor_hora_lunes', '09:00'))
+    ->timezone('Europe/Madrid')
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar notificación semanal a tutores');
+    });
+
 // Email mensual de saldo a participantes bonificados
 if (config('candidatos.email_saldo_bonificados.activo', true)) {
     $frecuenciaBonificados = config('candidatos.email_saldo_bonificados.frecuencia', 'monthly');
