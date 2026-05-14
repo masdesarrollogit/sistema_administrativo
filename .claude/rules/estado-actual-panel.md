@@ -1,6 +1,6 @@
 # Estado actual del Panel
 
-Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
+Snapshot del estado de desarrollo. Ultima actualizacion: 2026-05-13.
 
 ## Modulos completados
 
@@ -110,6 +110,114 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 - Flags: `--dry-run`, `--force` (sobrescribe acción/grupo existente)
 - En el modal Historial cada fila muestra el formato `(grupo_id) acción/grupo` (ej: `(75143) 201/1`) cuando los datos están disponibles, igual al formato de FUNDAE
 - Cuando `formation_group_alpha` matchea con `acciones_formativas.numero_accion` del Panel, se muestra el nombre completo de la acción (ej: "Contabilidad total 60h a")
+
+### Reportes Moodle — Reportes 1 al 7 (módulo completo, desarrollado 2026-05-06 / 14)
+
+Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Reporte. Solo procesa alumnos cuyo grupo `estado=en_curso` y `fecha_inicio<=hoy<=fecha_fin` (año 2026).
+
+**Vocabulario (importante para no confundirse):**
+- **Fase** = etapa de desarrollo (no es atributo del alumno)
+- **Reporte** = unidad funcional/producto de negocio (detección + tabla + notificaciones + log)
+- **Badge** = clasificación visual interna dentro de un Reporte
+- **Filtro** = control de UI que recorta el contenido de un Reporte (tutor, empresa, búsqueda)
+
+**Reportes activos (entregados):**
+- **Reporte 1 — No conectados** (Fase 1). Engloba dos badges visuales internos:
+  - 🟡 Nunca entró al sitio (`lastaccess_global = 0`)
+  - 🟠 No entró al curso (`lastaccess_global > 0` pero `lastaccess_curso = 0`)
+- **Reporte 2 — Inactivos** (Fase 2). Badge 🟣 indigo.
+  - **Estado**: `lastaccess_curso > 0` AND `dias_inactivo > 3`. Independiente de aprobación.
+  - **Email de rescate al alumno**: solo si `inactivo=true` AND `aprobado=false` (no insistir a aprobados).
+  - **Aprobado** = `nota_total >= 50` AND `cuestionario_final_realizado`.
+- **Reporte 3 — Riesgo crítico** (Fase 3). Badge 🔴 rojo.
+  - **Estado**: entró al curso AND `nota_total < 50` AND `pct_tiempo_transcurrido >= 50%`.
+  - **Excluye** alumnos que nunca entraron al curso (ellos son R1, no R3).
+  - **Email de rescate al alumno**: semanal (throttle 168h), sin tope. Solo a no aprobados (implícito porque nota<50).
+  - **Excluido si pre_cierre**: si el alumno está en R4, R3 NO le envía email (R4 manda).
+  - **Listado en email del tutor**: sección propia con tabla roja; prioridad sobre Inactivo en el bucket del tutor.
+- **Reporte 4 — Pre-cierre** (Fase 4). Badge 🟧 ámbar oscuro.
+  - **Estado**: últimas 72h antes de `fecha_fin` AND `cuestionario_final_realizado = false` (independiente de nota).
+  - **Email de rescate al alumno**: diario (throttle 23h para evitar doble envío en el mismo día), sin tope.
+  - **Prioridad MÁXIMA**: si un alumno está en R4 y también cumple R1, R2, R3 o R5, **SOLO** recibe el email de R4. Los otros crones lo excluyen explícitamente con `where('pre_cierre', false)`.
+  - **Listado en email del tutor**: primera sección (más urgente), columna "Horas restantes" y "Cuestionario pendiente".
+  - **Aprobado=false** sigue aplicando (si ya aprobó no recibe).
+- **Reporte 5 — Apto sin examen** (Fase 5). Badge 🟡 amarillo claro (positivo).
+  - **Estado**: `nota_total >= 50` AND `cuestionario_final_realizado = false`. Complementario a R3 (nota<50).
+  - **Email al alumno**: tono POSITIVO ("ya alcanzaste 50 pts, solo falta el cuestionario"). Semanal (throttle 168h), sin tope.
+  - **Excluido si pre_cierre**: si está en R4, R5 NO envía.
+  - **Listado en email del tutor**: sección al final con tono positivo (color amarillo, columna nota destacada).
+  - **Tabla en UI**: badge primario de R5 si no está también en R1; sub-badge "+Apto sin examen" si está combinado con R1.
+- **Reporte 6 — Apto / Finalizado con éxito** (Fase 6). Badge 🟢 verde (estado terminal positivo).
+  - **Estado**: `aprobado = true` (nota>=50 AND cuestionario_final_realizado). Usa el flag `aprobado` que ya existía en el snapshot, no hace falta columna nueva.
+  - **Email al alumno**: ÚNICA vez de FELICITACIÓN al detectar la aprobación. El comando verifica que no exista log previo de `TIPO_ALUMNO_APTO` para ese (alumno, grupo) y solo envía una vez.
+  - **Listado en email del tutor**: sección verde "Aprobados — éxitos" al final del email del lunes.
+  - **Sin alertas**: no genera urgencia, solo cierre/confirmación.
+- **Reporte 7 — No aptos / Reinicios** (Fase 7, post-cierre). Badge 🟥 rojo oscuro.
+  - **Detección**: nota_total < 50 AND cuestionario_final_realizado = false AND fecha_fin del grupo < hoy. Persistente en tabla nueva `alumno_no_aptos`.
+  - **Arquitectura SEPARADA del snapshot**: el snapshot diario solo procesa cursos activos. Cuando un curso termina, un cron separado (`detectar-no-aptos`, diario 01:30) examina el último snapshot disponible del alumno, y si cumple condiciones, crea entry permanente en `alumno_no_aptos`. La detección requiere que el snapshotter haya procesado el grupo al menos UNA vez antes de su finalización.
+  - **Ofrecimiento de REINICIO al alumno**: email semanal (throttle 7d) hasta 4 ofrecimientos máximos en ventana de 30 días desde detección. El email contiene un botón `mailto:` al admin con asunto y body predefinidos. Cero infraestructura web — el alumno simplemente envía email al admin pulsando el botón.
+  - **Cierre del ciclo**: el admin tiene en el dashboard del Reporte 7 un botón "✓ Marcar reiniciado" que detiene los emails y registra fecha + user. También "✗ Rechazar" para descartar.
+  - **Estados del ciclo**: `pendiente` → `ofrecido` (tras 1er email) → `aceptado` / `reiniciado` / `caducado` / `rechazado`.
+  - **Sin tope global de reinicios por alumno**: `max_reinicios_alumno = 0` (ilimitado). Configurable.
+  - **Tabla `alumno_reinicio_ofrecimientos`** registra cada email enviado para auditoría.
+  - **NO entra en el email semanal del tutor** (R7 es responsabilidad del admin, no del tutor — el curso ya terminó).
+  - **UI dedicada**: cuando filtro=`no_aptos`, la tabla se sustituye por una vista con columnas específicas (fin curso, nota final, # ofrecimientos, estado, acciones).
+- **R5 — Apto sin examen (amarillo claro)**: `nota_total >= 50` AND `cuestionario_final_realizado = false`. Continuo durante el curso, recordatorio de cerrar con el cuestionario final.
+- **R6 — Apto / Finalizado con éxito (verde)**: `aprobado = true`. Continuo desde que se cumple la condición.
+- **R7 — No aptos (rojo oscuro)**: `nota_total < 50` y por consecuencia sin cuestionario final. **Solo aparece después de `fecha_fin`** del curso (es un veredicto, no una alerta).
+
+**Solapamiento intencional**: un mismo alumno puede aparecer en varios Reportes simultáneamente (ej. Inactivo + Riesgo crítico). Cada Reporte tiene su propio mensaje y cron.
+
+**Reporte 7 — Reinicios (sub-proyecto pendiente)**: el email al alumno No apto le ofrece reiniciar el curso para que pueda ser bonificado. El número máximo de reinicios por alumno es **configurable** (clave y default por definir). El resto de mecánicas se planificará contigo cuando se aborde Fase 7.
+
+**Nuevas tablas:**
+- `alumno_progreso_moodle` — snapshot diario por (pivot, fecha): lastaccess, progress, nota_total, dias_inactivo, inactivo, **aprobado**, **cuestionario_final_realizado**, **riesgo_critico**, **pre_cierre**, **apto_sin_examen**, **pct_tiempo_transcurrido**, etc.
+- `alumno_no_aptos` — registro PERMANENTE de alumnos suspendidos (R7). Una fila por (alumno, grupo). Incluye estado del ciclo de reinicio, fecha de detección, audit del cierre.
+- `alumno_reinicio_ofrecimientos` — auditoría de emails de ofrecimiento de reinicio (1, 2, 3, 4 por alumno_no_apto).
+- `alumno_notificaciones_log` — auditoría de envíos (alumno_id O tutor_id, tipo, fase, payload, exitoso, error_message)
+- `alumno_calificaciones_moodle` — detalle de notas por actividad por snapshot, con flags `is_course_total` y `is_final_quiz`
+
+**Servicios:**
+- `MoodleReportingService` — orquesta llamadas batch a Moodle: `getLastAccessGlobalBatch`, `getUserCourseStats`, `getUserGrades` (parsea `gradereport_user_get_grade_items`)
+- `AlumnoProgresoSnapshotter` — ejecuta el snapshot diario, calcula inactividad, limpia rows obsoletas
+
+**Comandos artisan + schedules (Europe/Madrid):**
+- `reportes-moodle:snapshot` — diario 02:00 — pobla snapshots
+- `reportes-moodle:notificar-no-conectados` — diario 10:00 — Reporte 1, días [3, 6, 9] desde inicio, tope 3
+- `reportes-moodle:notificar-inactivos` — diario 10:15 — Reporte 2, throttle 72h por alumno+grupo, sin tope
+- `reportes-moodle:notificar-riesgo-critico` — diario 10:30 — Reporte 3, throttle 168h (semanal), sin tope. Excluye pre_cierre.
+- `reportes-moodle:notificar-pre-cierre` — diario 10:45 — Reporte 4, throttle 23h (diario sin doble envío), sin tope. Prioridad máxima.
+- `reportes-moodle:notificar-apto-sin-examen` — diario 11:00 — Reporte 5, throttle 168h (semanal), sin tope. Excluye pre_cierre.
+- `reportes-moodle:notificar-apto` — diario 11:15 — Reporte 6, ÚNICO envío por (alumno, grupo). Verifica log previo `TIPO_ALUMNO_APTO`.
+- `reportes-moodle:detectar-no-aptos` — diario 01:30 — Reporte 7, examina cursos finalizados y crea registros en `alumno_no_aptos` (idempotente).
+- `reportes-moodle:notificar-no-aptos` — diario 11:30 — Reporte 7, email semanal al alumno con `mailto:` al admin. Hasta 4 ofrecimientos en 30 días.
+- `reportes-moodle:notificar-tutores` — lunes 09:00 — email semanal con seis secciones (pre-cierre + no conectados + riesgo crítico + apto sin examen + inactivos + aprobados). R7 NO entra aquí.
+
+**Mailables (mailer dedicado `moodle`, alias tutorias@webcurso.es, CC administracion@webcurso.es):**
+- `AlumnoNoConectadoMail` — Reporte 1
+- `AlumnoInactivoMail` — Reporte 2 con nota acumulada y días restantes
+- `AlumnoRiesgoCriticoMail` — Reporte 3 con nota, % tiempo transcurrido y advertencia urgente
+- `AlumnoPreCierreMail` — Reporte 4 con horas restantes, nota y mensaje "ÚLTIMO AVISO" (asunto y estilo ámbar oscuro)
+- `AlumnoAptoSinExamenMail` — Reporte 5 con tono POSITIVO ("ya tienes los 50 puntos, solo falta cuestionario"). Asunto: "🎯 Ya tienes los 50 puntos...". Color amarillo claro.
+- `AlumnoAptoMail` — Reporte 6 de FELICITACIÓN al aprobar. Asunto "🎉 ¡Has aprobado...". Color verde (#059669). Único envío.
+- `AlumnoNoAptoMail` — Reporte 7 de OFRECIMIENTO de reinicio. Asunto "Una segunda oportunidad...". Color rojo oscuro (#7f1d1d). Botón mailto: al admin.
+- `TutorReporteSemanalMail` — único email del lunes con las seis secciones (R4 + R1 + R3 + R5 + R2 + R6). R7 va por canal separado al admin.
+
+**UI Livewire** (`ReportesMoodleIndex`) — dashboard híbrido:
+- **10 KPIs clicables** (botones que abren cada Reporte): Total · No conectados · Inactivos · Riesgo crítico · Pre-cierre · Apto sin examen · Aprobados · No aptos · Conectados · % en riesgo
+- **Selector "Reporte"** (dropdown) con 9 opciones: Todos / No conectados / Inactivos / Riesgo crítico / Pre-cierre / Apto sin examen / Aprobados / No aptos / Conectados
+- **Vista alternativa cuando filtro=No aptos**: la tabla principal de snapshots se sustituye por una tabla dedicada (`alumno_no_aptos`) con columnas específicas: fin curso, nota final, # ofrecimientos, estado del reinicio, acciones (botones "✓ Marcar reiniciado" / "✗ Rechazar")
+- **Leyenda de badges** explicando los sub-estados visuales internos
+- Filtros: search, reporte, tutor, empresa, accion. URL queryString.
+- Tabla 10 columnas con badge de estado + sub-etiqueta "ÚLTIMO AL CURSO: ..." + nota auxiliar cuando aplica
+- Columna "Total curso" con barra de progreso color-coded + botón "Ver notas" → modal con 40+ items por alumno
+- Modal Historial de notificaciones (clicable desde la columna Avisos)
+- Botón único "↻ Refrescar todos ahora" en el header (sin botón por fila)
+- Las KPIs hacen `wire:click="abrirReporte(...)"` y la tabla cambia su contenido en vivo
+
+**Pre-requisito de Moodle:** 20 funciones webservice habilitadas en el token `paneldesarrollo` — las 14 originales + `core_completion_get_course_completion_status`, `core_enrol_get_enrolled_users`, `gradereport_user_get_grade_items`, `mod_quiz_get_user_attempts`, `core_course_get_categories`. Verificar con `core_webservice_get_site_info`.
+
+**Documentación detallada:** [`docs/reportes-moodle.md`](../../docs/reportes-moodle.md)
 
 ### AlumnosIndex — filtros por fechas (desarrollado 2026-05-03)
 - Tres filtros nuevos en `/webcurso/alumnos`:
@@ -245,23 +353,24 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 
 | Aspecto | Cantidad |
 |---|---|
-| Modelos | 23 (+ AlumnoLegacyPool, AlumnoLegacyCurso, BonificadoEmailExclusion) |
-| Componentes Livewire | 13 |
-| Clases Mail | 5 |
-| Comandos Artisan | 8 (+ alumnos:migrar-legacy, alumnos:enriquecer-cursos-legacy) |
-| Servicios | 3 (CsvImportService, FundaeXmlService, MoodleService) |
-| Migraciones | 36 |
-| Configs de dominio | 3 |
+| Modelos | 23 (+ AlumnoLegacyPool, AlumnoLegacyCurso, BonificadoEmailExclusion, AlumnoProgresoMoodle, AlumnoNotificacionLog, AlumnoCalificacionMoodle, GrupoFormativoAlumno) |
+| Componentes Livewire | 14 (+ ReportesMoodleIndex) |
+| Clases Mail | 13 (+ AlumnoNoConectadoMail, AlumnoInactivoMail, AlumnoRiesgoCriticoMail, AlumnoPreCierreMail, AlumnoAptoSinExamenMail, AlumnoAptoMail, AlumnoNoAptoMail, TutorReporteSemanalMail) |
+| Comandos Artisan | 18 (+ los 8 de reportes-moodle: snapshot, notificar-no-conectados, notificar-inactivos, notificar-riesgo-critico, notificar-pre-cierre, notificar-apto-sin-examen, notificar-apto, detectar-no-aptos, notificar-no-aptos, notificar-tutores) |
+| Servicios | 5 (+ MoodleReportingService, AlumnoProgresoSnapshotter) |
+| Migraciones | 47 |
+| Configs de dominio | 4 (+ reportes_moodle.php) |
 
 ---
 
 ## Modulos pendientes de disenar y desarrollar
 
-1. **Seguimiento academico** — progreso en Moodle (Fase 5)
-2. **Integracion Zoho CRM** — sincronizacion de candidatos
-3. **Facturacion** — Zoho Books (iniciar con mocks)
-4. **Cierre de expediente FUNDAE** (Fase 7)
-5. **Reorganizacion de categorias Moodle** — Activos/tutor, Repasos, Desactualizados, Plantillas
+1. **Reportes Moodle Fases 3-7** — Riesgo crítico (rojo), Pre-cierre 72h, Apto sin examen final, Apto verde, No aptos (rojo oscuro, solo post-cierre). Infraestructura ya lista (snapshot capta notas, completion, aprobado, cuestionario final); falta añadir flags al snapshot, mailables, comandos, KPIs. Fase 7 incluye sub-proyecto de **reinicios** (tope 3 por alumno).
+2. **Seguimiento academico** — progreso en Moodle (Fase 5 del flujo de matriculación)
+3. **Integracion Zoho CRM** — sincronizacion de candidatos
+4. **Facturacion** — Zoho Books (iniciar con mocks)
+5. **Cierre de expediente FUNDAE** (Fase 7)
+6. **Reorganizacion de categorias Moodle** — Activos/tutor, Repasos, Desactualizados, Plantillas
 
 ---
 
@@ -301,6 +410,21 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-04-13.
 - Enriquecimiento acción/grupo dos vías: tabla `grupos` (importada FUNDAE) primero (más confiable, 87 matches) y `participantes_bonificados` como fallback (parsea `(N) accion/grupo` del `id_codigo_grupo`, 20 matches). Cuando el legacy no tenía `formation_group_alpha/number` rellenados (~3,015 casos), estas dos fuentes recuperan la información via cruce por CIF + fechas + nombre alumno
 - Modal Historial — sección legacy SIN columnas `Estado`/`Resultado`: esos valores (`Running`/`Completed`/`Pass`/`Fail`) son del modelo legacy y rompen la consistencia del modelo actual (estado_grupo: `comunicado`/`en_curso` y estado_moodle: `pendiente`/`matriculado`). Los campos siguen guardados en BD pero no se renderizan
 - Filtros por fechas en AlumnosIndex: año + rango (desde/hasta) buscan en las 4 fuentes (gruposFormativos, participantesBonificados, matriculasAutonomas, cursosLegacy) via OR de `whereHas`. El dropdown de años se genera dinámicamente con UNION de `YEAR(fecha_inicio)` para reflejar siempre datos disponibles
+
+- **Reportes Moodle**: snapshot diario (cron 02:00 Madrid) en lugar de queries en vivo — UI carga instantánea, permite detección día-a-día. Botón manual "Refrescar todos ahora" inline.
+- **Reportes Moodle — definición de "alumno activo"**: `estado=en_curso` AND `fecha_inicio<=hoy<=fecha_fin`. El estado `en_curso` por sí solo no basta porque no se actualiza a `completado` automáticamente al pasar `fecha_fin`. Snapshotter limpia rows obsoletas en cada ejecución.
+- **Reportes Moodle — vista única vs. seis**: una sola pantalla con filtros por color en lugar de seis vistas separadas (una por fase). Reduce navegación y los KPIs cobran sentido.
+- **Reportes Moodle — tabla `alumno_notificaciones_log` separada**: NO se reutiliza `notificaciones_log` (atado a `candidato_id`). El nuevo log soporta `alumno_id` O `tutor_id` para registrar emails a ambos.
+- **Reportes Moodle — diferencia `lastaccess_global` vs `lastaccess_curso`**: ambos vienen de la API de Moodle. Global=0 → "Nunca al sitio" (amarillo). Curso=0 con global>0 → "No entró al curso" (naranja). Curso>0 + >3d → "Inactivo" (indigo). Sub-etiqueta del badge SIEMPRE referida al curso para coherencia FUNDAE.
+- **Reportes Moodle — tope de reenvíos al alumno**: Fase 1 con tope (default 3 emails los días 3/6/9 y luego escala al tutor). Fase 2 SIN tope (throttle 72h hasta que entre o termine el curso). Esta asimetría es intencional: en Fase 1 ya se reenvían credenciales (riesgo de spam); en Fase 2 son recordatorios con la nota actual.
+- **Reportes Moodle — un solo email semanal al tutor** (`TutorReporteSemanalMail`): combina dos secciones (No conectados + Inactivos). Se eliminó el antiguo `TutorListadoNoConectadosMail` cuando se añadió Fase 2.
+- **Reportes Moodle — captura de notas vía `gradereport_user_get_grade_items`** (JSON estructurado), NO `gradereport_user_get_grades_table` (HTML embebido). Requiere habilitar 4 funciones extra en el token de Moodle: `core_completion_get_course_completion_status`, `core_enrol_get_enrolled_users`, `gradereport_user_get_grade_items`, `mod_quiz_get_user_attempts`. Para exclusión de categorías Moodle también hace falta `core_course_get_categories` (5ª función, pendiente).
+
+- **Reportes Moodle — vocabulario "Fase" vs "Reporte" vs "Filtro" vs "Badge"**: Fase = etapa de desarrollo interna; Reporte = unidad de producto/negocio (cada Fase entrega un Reporte completo); Filtro = control de UI que recorta DENTRO de un Reporte (tutor, empresa, búsqueda); Badge = sub-estado visual de un alumno dentro de un Reporte. Las claves del config respetan este vocabulario: `reporte_no_conectados`, `reporte_inactivos`, no `fase1`/`fase2`.
+- **Reportes Moodle — "Inactivo" separa estado de acción**: el flag `inactivo=true` (visible en UI, badge indigo, KPI) se calcula con solo dos condiciones (entró al curso AND >3d sin entrar). El email de rescate (cron `notificar-inactivos`) AÑADE un filtro extra: solo `inactivo=true AND aprobado=false`. Razón: un alumno aprobado puede estar ausente legítimamente; sigue siendo inactivo pero no hay que insistirle por email.
+- **Reportes Moodle — "Aprobado" FUNDAE**: `nota_total >= 50` AND `cuestionario_final_realizado`. Tener 50+ pts no basta; hay que haber rendido el cuestionario final también.
+- **Reportes Moodle — exclusión categorías Moodle "Repaso" y "Foros"**: los cursos de esas categorías Moodle no entran en ningún Reporte. Configurable en `config/reportes_moodle.php`. Resolución dinámica de nombres a IDs vía `core_course_get_categories` (función pendiente de habilitar).
+- **Reportes Moodle — dashboard híbrido con KPIs clicables**: la pantalla es a la vez resumen y selector. Las 5 KPIs son botones (`wire:click="abrirReporte(...)"`) que cambian la propiedad `$reporte` de Livewire y por tanto el filtro de la tabla. Se mantiene también el dropdown como fallback de teclado.
 
 ## Decisiones de diseno pendientes
 

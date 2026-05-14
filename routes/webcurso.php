@@ -13,6 +13,7 @@ use App\Livewire\Webcurso\CandidatoEstatus;
 use App\Livewire\Webcurso\TutoresIndex;
 use App\Livewire\Webcurso\AccionesFormativasIndex;
 use App\Livewire\Webcurso\AlumnosIndex;
+use App\Livewire\Webcurso\ReportesMoodleIndex;
 
 
 /*
@@ -53,6 +54,9 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
 
         // Alumnos
         Route::get('/alumnos', AlumnosIndex::class)->name('alumnos');
+
+        // Reportes Moodle (Fase 1: alumnos no conectados)
+        Route::get('/reportes-moodle', ReportesMoodleIndex::class)->name('reportes-moodle');
 
         // Acciones Formativas FUNDAE
         Route::get('/acciones-formativas', AccionesFormativasIndex::class)->name('acciones-formativas');

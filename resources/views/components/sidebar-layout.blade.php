@@ -1,7 +1,6 @@
-<div x-data="{ open: false }" class="flex h-screen bg-gray-100 dark:bg-gray-900 overflow-hidden">
+<div x-data="{ open: true }" class="flex h-screen bg-gray-100 dark:bg-gray-900 overflow-hidden">
     <!-- Sidebar -->
-    <div :class="open ? 'w-64' : 'w-20'"
-        class="bg-indigo-900 dark:bg-gray-800 text-white transition-all duration-300 ease-in-out flex flex-col shadow-2xl relative">
+    <div class="w-64 bg-indigo-900 dark:bg-gray-800 text-white flex flex-col shadow-2xl relative">
         <!-- Logo Area -->
         <div class="h-16 flex items-center px-6 border-b border-indigo-800 dark:border-gray-700">
             <div class="bg-white p-2 rounded-lg">
@@ -78,6 +77,12 @@
                     <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
                     <span x-show="open" class="ml-4 whitespace-nowrap">Alumnos</span>
                 </a>
+
+                <a href="{{ route('webcurso.reportes-moodle') }}" wire:navigate
+                   class="flex items-center px-6 py-3 text-indigo-100 hover:bg-indigo-800 dark:hover:bg-gray-700 transition-colors group {{ request()->routeIs('webcurso.reportes-moodle') ? 'bg-indigo-800 dark:bg-gray-700' : '' }}">
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                    <span x-show="open" class="ml-4 whitespace-nowrap">Reportes Moodle</span>
+                </a>
             @endhasanyrole
 
             <div class="border-t border-indigo-800 dark:border-gray-700 my-2"></div>
@@ -92,15 +97,6 @@
                 <span x-show="open" class="ml-4 whitespace-nowrap">Moodle Support</span>
             </a>
         </nav>
-
-        <!-- Toggle Button -->
-        <button @click="open = !open"
-            class="absolute -right-3 top-20 bg-indigo-600 rounded-full p-1 border-2 border-white dark:border-gray-900 transition-transform hover:scale-110 active:scale-90">
-            <svg :class="open ? 'rotate-0' : 'rotate-180'" class="w-4 h-4 text-white transition-transform duration-300"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-            </svg>
-        </button>
     </div>
 
     <!-- Main Content -->
