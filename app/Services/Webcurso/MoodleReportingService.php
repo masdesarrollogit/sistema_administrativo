@@ -17,14 +17,15 @@ class MoodleReportingService
     }
 
     /**
-     * Devuelve los IDs de categorías Moodle cuyo nombre coincide (case-insensitive)
-     * con alguno de los nombres dados, MÁS todos sus descendientes (cualquier
+     * Devuelve los IDs de categorías Moodle cuyo nombre CONTIENE (case-insensitive)
+     * alguno de los términos dados, MÁS todos sus descendientes (cualquier
      * subcategoría bajo ellas en cualquier nivel de profundidad).
      *
-     * Ejemplo: si pasas ['Foros'] y existen 'Foros' (id=16) y 'Foros Dominio…' (id=10, parent=16),
-     * devuelve [16, 10] aunque 'Foros Dominio…' no esté en la lista de nombres.
+     * Replica el filtro del informe Moodle "Nombre de categoría: NO contiene <término>".
+     * Ejemplo: ['Repaso'] excluye 'Repaso', 'Cursos Repaso 2026', 'Repaso Excel'…
+     *          ['Foros'] excluye 'Foros' (id=16) y su descendiente 'Foros Dominio…' (id=10).
      *
-     * @param string[] $nombres
+     * @param string[] $nombres Términos a buscar dentro del nombre de la categoría.
      * @return int[] IDs de las categorías matched + todos sus descendientes
      */
     public function resolverCategoriaIds(array $nombres): array
@@ -33,7 +34,10 @@ class MoodleReportingService
             return [];
         }
 
-        $normalizados = array_map(fn ($n) => mb_strtolower(trim((string) $n)), $nombres);
+        $normalizados = array_values(array_filter(array_map(
+            fn ($n) => mb_strtolower(trim((string) $n)),
+            $nombres,
+        )));
 
         if ($this->categoriasCache === null) {
             $this->categoriasCache = [];
@@ -52,11 +56,15 @@ class MoodleReportingService
             }
         }
 
-        // 1) Match por nombre → ancestros
+        // 1) Match por nombre (contains, case-insensitive) → ancestros
         $ancestros = [];
         foreach ($this->categoriasCache as $id => $info) {
-            if (in_array(mb_strtolower($info['name']), $normalizados, true)) {
-                $ancestros[] = $id;
+            $nombreLower = mb_strtolower($info['name']);
+            foreach ($normalizados as $needle) {
+                if ($needle !== '' && str_contains($nombreLower, $needle)) {
+                    $ancestros[] = $id;
+                    break;
+                }
             }
         }
 

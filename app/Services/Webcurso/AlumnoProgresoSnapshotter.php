@@ -93,6 +93,19 @@ class AlumnoProgresoSnapshotter
                 continue;
             }
 
+            // Si Moodle no devuelve el curso para este usuario, la matrícula no está activa
+            // (suspendida, desenrolada o nunca se completó). El reporte exige matrícula activa,
+            // así que omitimos y limpiamos cualquier snapshot previo del día.
+            if ($stats === null) {
+                $resumen['omitidos']++;
+                if (!$dryRun) {
+                    AlumnoProgresoMoodle::where('grupo_formativo_alumno_id', $pivot->id)
+                        ->whereDate('fecha_snapshot', $hoy)
+                        ->delete();
+                }
+                continue;
+            }
+
             // Saltar pivots cuyo curso Moodle está en una categoría excluida (Repaso, Foros…)
             $categoriaCurso = $stats['category'] ?? null;
             if ($categoriaCurso !== null && in_array($categoriaCurso, $categoriaIdsExcluidos, true)) {
