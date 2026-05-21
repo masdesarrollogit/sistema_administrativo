@@ -19,12 +19,12 @@
 
                 {{-- Filtros --}}
                 <div class="bg-gray-50 p-4 rounded-lg mb-6">
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
                         {{-- Búsqueda --}}
                         <div class="md:col-span-2">
                             <label class="block text-sm font-medium text-gray-700 mb-1">Buscar</label>
-                            <input type="text" 
-                                   wire:model.live.debounce.300ms="search" 
+                            <input type="text"
+                                   wire:model.live.debounce.300ms="search"
                                    placeholder="Nombre, email, teléfono o entidad..."
                                    class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                         </div>
@@ -32,7 +32,7 @@
                         {{-- Filtro Tipo --}}
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-                            <select wire:model.live="filtroTipo" 
+                            <select wire:model.live="filtroTipo"
                                     class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                 <option value="">Todos</option>
                                 @foreach($tiposCandidato as $tipo)
@@ -44,7 +44,7 @@
                         {{-- Filtro Estatus --}}
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
-                            <select wire:model.live="filtroEstatus" 
+                            <select wire:model.live="filtroEstatus"
                                     class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                                 <option value="">Todos</option>
                                 @foreach($estatusOptions as $value => $label)
@@ -52,11 +52,35 @@
                                 @endforeach
                             </select>
                         </div>
+
+                        {{-- Orden por fecha de alta --}}
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Orden</label>
+                            <select wire:model.live="orden"
+                                    class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <option value="recientes">Más recientes primero</option>
+                                <option value="antiguos">Más antiguos primero</option>
+                            </select>
+                        </div>
                     </div>
 
-                    @if($search || $filtroTipo || $filtroEstatus)
+                    {{-- Rango de fechas de alta --}}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-200">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Alta desde</label>
+                            <input type="date" wire:model.live="filtroDesde"
+                                   class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Alta hasta</label>
+                            <input type="date" wire:model.live="filtroHasta"
+                                   class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        </div>
+                    </div>
+
+                    @if($search || $filtroTipo || $filtroEstatus || $orden !== 'recientes' || $filtroDesde || $filtroHasta)
                         <div class="mt-3">
-                            <button wire:click="limpiarFiltros" 
+                            <button wire:click="limpiarFiltros"
                                     class="text-sm text-indigo-600 hover:text-indigo-800">
                                 Limpiar filtros
                             </button>
@@ -77,6 +101,9 @@
                                 </th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Estatus
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Alta
                                 </th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Acciones
@@ -139,9 +166,31 @@
                                             </svg>
                                         </button>
                                     </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        @if($candidato->created_at)
+                                            <div class="flex items-center gap-2"
+                                                 title="Alta: {{ $candidato->created_at->format('d/m/Y H:i') }}">
+                                                <svg class="w-4 h-4 text-indigo-500 shrink-0" fill="none" stroke="currentColor"
+                                                     viewBox="0 0 24 24" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                                </svg>
+                                                <div class="flex flex-col leading-tight">
+                                                    <span class="text-sm font-medium text-gray-900">
+                                                        {{ $candidato->created_at->format('d/m/Y') }}
+                                                    </span>
+                                                    <span class="text-[11px] text-gray-500">
+                                                        {{ $candidato->created_at->diffForHumans(['short' => true]) }}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        @else
+                                            <span class="text-xs text-gray-400">—</span>
+                                        @endif
+                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                         <div class="flex items-center gap-2">
-                                            <a href="{{ route('webcurso.candidatos.estatus', $candidato) }}" 
+                                            <a href="{{ route('webcurso.candidatos.estatus', $candidato) }}"
                                                class="inline-flex items-center px-2 py-1 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors">
                                                 🔍 Gestionar
                                             </a>
@@ -172,7 +221,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="px-6 py-4 text-center text-gray-500">
+                                    <td colspan="5" class="px-6 py-4 text-center text-gray-500">
                                         No se encontraron candidatos
                                     </td>
                                 </tr>

@@ -14,11 +14,17 @@ class CandidatosIndex extends Component
     public $search = '';
     public $filtroTipo = '';
     public $filtroEstatus = '';
+    public string $orden = 'recientes';
+    public string $filtroDesde = '';
+    public string $filtroHasta = '';
 
     protected $queryString = [
         'search' => ['except' => ''],
         'filtroTipo' => ['except' => ''],
         'filtroEstatus' => ['except' => ''],
+        'orden' => ['except' => 'recientes'],
+        'filtroDesde' => ['except' => ''],
+        'filtroHasta' => ['except' => ''],
     ];
 
     public function updatingSearch()
@@ -36,9 +42,24 @@ class CandidatosIndex extends Component
         $this->resetPage();
     }
 
+    public function updatingOrden()
+    {
+        $this->resetPage();
+    }
+
+    public function updatingFiltroDesde()
+    {
+        $this->resetPage();
+    }
+
+    public function updatingFiltroHasta()
+    {
+        $this->resetPage();
+    }
+
     public function limpiarFiltros()
     {
-        $this->reset(['search', 'filtroTipo', 'filtroEstatus']);
+        $this->reset(['search', 'filtroTipo', 'filtroEstatus', 'orden', 'filtroDesde', 'filtroHasta']);
         $this->resetPage();
     }
 
@@ -108,7 +129,17 @@ class CandidatosIndex extends Component
             $query->whereNotIn('estatus', ['desactivado', 'cancelado']);
         }
 
-        $candidatos = $query->latest()->paginate(15);
+        // Filtro por rango de fecha de alta
+        if ($this->filtroDesde) {
+            $query->whereDate('created_at', '>=', $this->filtroDesde);
+        }
+        if ($this->filtroHasta) {
+            $query->whereDate('created_at', '<=', $this->filtroHasta);
+        }
+
+        $candidatos = $query
+            ->when($this->orden === 'antiguos', fn ($q) => $q->oldest(), fn ($q) => $q->latest())
+            ->paginate(15);
 
         $tiposCandidato = TipoCandidato::activos()->get();
 
