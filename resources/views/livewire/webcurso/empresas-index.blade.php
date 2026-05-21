@@ -69,18 +69,33 @@
         {{-- Filtros --}}
         <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-4">🔍 Filtrar Empresas</h3>
-            <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
                 <div>
                     <label class="block text-xs font-medium text-gray-700 mb-1">CIF</label>
-                    <input type="text" wire:model.live.debounce.300ms="filtroCif" 
+                    <input type="text" wire:model.live.debounce.300ms="filtroCif"
                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
                            placeholder="Buscar CIF...">
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-gray-700 mb-1">Razón Social</label>
-                    <input type="text" wire:model.live.debounce.300ms="filtroRazonSocial" 
+                    <input type="text" wire:model.live.debounce.300ms="filtroRazonSocial"
                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
                            placeholder="Buscar nombre...">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">✉️ Email</label>
+                    <input type="text" wire:model.live.debounce.300ms="filtroEmail"
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500"
+                           placeholder="dominio o usuario...">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">👤 Candidato</label>
+                    <input type="text"
+                           wire:model.live.debounce.300ms="filtroCandidato"
+                           @disabled($anioSeleccionado === $anioAnterior)
+                           class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed disabled:text-gray-400"
+                           placeholder="Nombre del candidato..."
+                           title="{{ $anioSeleccionado === $anioAnterior ? 'No disponible para el año anterior' : 'Busca empresas por el nombre del candidato vinculado' }}">
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-gray-700 mb-1">PyME</label>

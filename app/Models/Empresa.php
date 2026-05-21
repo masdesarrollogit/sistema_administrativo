@@ -72,6 +72,14 @@ class Empresa extends Model
     }
 
     /**
+     * Relación con candidatos vinculados a esta empresa (tipo organizadora)
+     */
+    public function candidatos(): HasMany
+    {
+        return $this->hasMany(Candidato::class, 'empresa_id');
+    }
+
+    /**
      * Scope para empresas PYME
      */
     public function scopePyme($query)

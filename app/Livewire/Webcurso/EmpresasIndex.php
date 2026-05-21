@@ -20,6 +20,8 @@ class EmpresasIndex extends Component
     // Filtros
     public string $filtroCif = '';
     public string $filtroRazonSocial = '';
+    public string $filtroEmail = '';
+    public string $filtroCandidato = '';
     public string $filtroPyme = '';
     public string $filtroNuevaCreacion = '';
     public string $filtroBloqueada = '';
@@ -34,6 +36,8 @@ class EmpresasIndex extends Component
     protected $queryString = [
         'filtroCif' => ['except' => ''],
         'filtroRazonSocial' => ['except' => ''],
+        'filtroEmail' => ['except' => ''],
+        'filtroCandidato' => ['except' => ''],
         'filtroPyme' => ['except' => ''],
         'filtroNuevaCreacion' => ['except' => ''],
         'filtroBloqueada' => ['except' => ''],
@@ -56,6 +60,16 @@ class EmpresasIndex extends Component
     }
 
     public function updatingFiltroRazonSocial(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingFiltroEmail(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingFiltroCandidato(): void
     {
         $this->resetPage();
     }
@@ -94,10 +108,12 @@ class EmpresasIndex extends Component
     public function limpiarFiltros(): void
     {
         $this->reset([
-            'filtroCif', 
-            'filtroRazonSocial', 
-            'filtroPyme', 
-            'filtroNuevaCreacion', 
+            'filtroCif',
+            'filtroRazonSocial',
+            'filtroEmail',
+            'filtroCandidato',
+            'filtroPyme',
+            'filtroNuevaCreacion',
             'filtroBloqueada'
         ]);
         $this->resetPage();
@@ -131,6 +147,14 @@ class EmpresasIndex extends Component
         }
         if ($this->filtroRazonSocial) {
             $query->where('razon_social', 'like', "%{$this->filtroRazonSocial}%");
+        }
+        if ($this->filtroEmail) {
+            $query->where('email', 'like', "%{$this->filtroEmail}%");
+        }
+        if ($this->filtroCandidato && $this->anioSeleccionado !== $this->anioAnterior) {
+            $query->whereHas('candidatos', function ($q) {
+                $q->where('nombre_contacto', 'like', "%{$this->filtroCandidato}%");
+            });
         }
         if ($this->filtroPyme) {
             $query->where('pyme', $this->filtroPyme);
