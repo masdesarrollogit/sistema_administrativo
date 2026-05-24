@@ -540,7 +540,7 @@
                                                     @foreach($alumnos as $alumnoDisp)
                                                         @php
                                                             $yaEnGrupo      = $grupo->alumnos->contains($alumnoDisp->id);
-                                                            $tieneOtroGrupo = !$yaEnGrupo && $alumnoDisp->tieneGrupoActivo();
+                                                            $tieneOtroGrupo = !$yaEnGrupo && $alumnoDisp->tieneGrupoActivoEnPeriodo($grupo->fecha_inicio, $grupo->fecha_fin, $grupo->id);
                                                             $bloqueado      = $tieneOtroGrupo;
                                                         @endphp
                                                         <tr wire:click="{{ $bloqueado ? '' : "toggleAlumnoEnGrupo({$grupo->id}, {$alumnoDisp->id})" }}"
