@@ -80,6 +80,14 @@ class Empresa extends Model
     }
 
     /**
+     * Notas de seguimiento manuales por empresa (para llamadas de cobro / atención).
+     */
+    public function notas(): HasMany
+    {
+        return $this->hasMany(NotaEmpresa::class, 'empresa_id');
+    }
+
+    /**
      * Scope para empresas PYME
      */
     public function scopePyme($query)

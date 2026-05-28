@@ -14,6 +14,8 @@ use App\Livewire\Webcurso\TutoresIndex;
 use App\Livewire\Webcurso\AccionesFormativasIndex;
 use App\Livewire\Webcurso\AlumnosIndex;
 use App\Livewire\Webcurso\ReportesMoodleIndex;
+use App\Livewire\Zoho\BooksIndex;
+use App\Http\Controllers\ZohoController;
 
 
 /*
@@ -68,4 +70,18 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
             Route::get('/{candidato}/editar', CandidatoForm::class)->name('editar');
             Route::get('/{candidato}/estatus', CandidatoEstatus::class)->name('estatus');
         });
+
+        // Zoho Books
+        Route::get('/zoho/books', BooksIndex::class)->name('zoho.books');
+        Route::get('/zoho/connect', [ZohoController::class, 'connect'])->name('zoho.connect');
+        Route::get('/zoho/disconnect', [ZohoController::class, 'disconnect'])->name('zoho.disconnect');
     });
+
+/*
+| Callback OAuth de Zoho — debe estar accesible sin role:admin porque Zoho
+| no envía cookies de sesión cuando redirige de vuelta (la sesión sobrevive
+| porque está en BD, pero el middleware sigue requiriendo autenticación).
+*/
+Route::middleware(['auth'])
+    ->get('/zoho/callback', [\App\Http\Controllers\ZohoController::class, 'callback'])
+    ->name('zoho.callback');
