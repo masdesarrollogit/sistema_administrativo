@@ -1,11 +1,12 @@
 # Estado actual del Panel
 
-Snapshot del estado de desarrollo. Ultima actualizacion: 2026-05-13.
+Snapshot del estado de desarrollo. Ultima actualizacion: 2026-05-24.
 
 ## Modulos completados
 
 ### Gestion de candidatos
 - **CandidatosIndex**: listado paginado (15/pagina), busqueda por nombre/email/telefono/razon_social de empresa, filtros por tipo y estatus. Oculta desactivados y cancelados por defecto. Boton eliminar candidato (elimina requisitos y archivos adjuntos asociados). **Icono de telefono clicable** junto al nombre del candidato (enlace `tel:` para integracion con Momena u otra app VoIP)
+- **CandidatosIndex — columna Alta + filtros de fecha (2026-05-20)**: nueva columna **Alta** entre Estatus y Acciones que muestra la fecha de creacion del candidato (`created_at`) con icono de calendario indigo, formato `dd/mm/YYYY` y `diffForHumans()` corto debajo (ej. "hace 3 d"). Tooltip nativo con la hora completa `dd/mm/YYYY HH:mm`. Segunda fila de filtros con dos `<input type="date">` (**Alta desde** / **Alta hasta**) aplicados como `whereDate('created_at', ...)` — ignoran la hora, los extremos se incluyen. Selector adicional **Orden** (Mas recientes / Mas antiguos primero) que conmuta entre `latest()` y `oldest()`. Las tres nuevas propiedades (`$filtroDesde`, `$filtroHasta`, `$orden`) persisten via `queryString` y resetean paginacion en sus hooks `updating*()`. Boton "Limpiar filtros" extendido para detectar tambien rango y orden activos. Mismo patron de UI que [AlumnosIndex](../../app/Livewire/Webcurso/AlumnosIndex.php) (filtros desde/hasta) y misma convencion visual de fecha que [participantes-bonificados-index.blade.php:289-292](../../resources/views/livewire/webcurso/participantes-bonificados-index.blade.php#L289-L292)
 - **Candidato model**: accessor `telefono_e164` — normaliza el telefono a formato E.164 (`+34XXXXXXXXX`) aceptando cualquier variante guardada (`971435090`, `0034916590303`, `+34915489870`, etc.). Elimina espacios, guiones y puntos antes de normalizar
 - **CandidatoForm**: crear/editar candidato. Autocompletado de empresa segun tipo. Auto-crea empresa si no existe (firstOrCreate). **Campo "nombre de curso" eliminado** — ya no existe en el formulario
 - **CandidatoEstatus**: gestion detallada — requisitos, archivos adjuntos, configuracion de recordatorios, pausar/reactivar/desactivar. Boton **"Completar todos"** para marcar todos los requisitos pendientes de una vez
@@ -111,6 +112,50 @@ Snapshot del estado de desarrollo. Ultima actualizacion: 2026-05-13.
 - En el modal Historial cada fila muestra el formato `(grupo_id) acción/grupo` (ej: `(75143) 201/1`) cuando los datos están disponibles, igual al formato de FUNDAE
 - Cuando `formation_group_alpha` matchea con `acciones_formativas.numero_accion` del Panel, se muestra el nombre completo de la acción (ej: "Contabilidad total 60h a")
 
+### Auditoría y rescate manual de cursos legacy (desarrollado 2026-05-24)
+- Comando `alumnos:auditar-enriquecimiento-legacy` — **read-only**, clasifica los cursos legacy sin enriquecer en 6 escalones según qué tan cerca están del matching automático:
+  - Escalón 1: matchearía con la lógica actual (CIF+fi+ff+LIKE nombre completo)
+  - Escalón 2: falla solo el LIKE → matchea con primer nombre (rescatable alta confianza)
+  - Escalón 3: falla LIKE + fecha_fin (caso típico de bug fecha en legacy)
+  - Escalón 4: solo CIF+fecha_inicio coincide, candidato único (rescatable confianza media)
+  - Escalón 5: solo CIF+fecha_inicio, múltiples candidatos (ambiguo)
+  - Escalón 6: sin candidato en `grupos` (falta importar el grupo FUNDAE correspondiente)
+- Flags: `--year=YYYY` (filtra por año tocado), `--csv=path` (exporta CSV)
+- Con `--year` exporta TODOS los cursos sin acción del año (incluso sin alumno vinculado y escalones 4-6) con columna `tiene_alumno_vinculado` para revisión manual
+- CSV en `storage/audit/legacy-{año}-sin-accion.csv` con candidato sugerido por escalón
+- **No modifica datos**. Pensado para revisar antes de aplicar rescates manuales puntuales con UPDATE directo
+
+### Convención `origen_enriquecimiento='no_bonificado'` (desarrollado 2026-05-24)
+- Valor nuevo del campo `alumnos_legacy_cursos.origen_enriquecimiento` para marcar cursos que NO deben enriquecerse con acción/grupo FUNDAE porque corresponden a alumnos **autónomos**, **privados**, **repaso** u otras categorías no bonificadas
+- Convención: cuando un curso legacy es revisado y se confirma que no aplica matching FUNDAE, se le pone `origen_enriquecimiento='no_bonificado'` (en lugar de dejarlo en NULL pendiente)
+- Beneficio: distingue "pendiente real (NULL)" de "revisado y descartado (no_bonificado)"; deja de aparecer en futuras corridas del comando de auditoría como pendiente
+- Otros valores existentes del campo: `'grupos_fundae'`, `'participantes_bonificados'` (cron automático), `'manual_escalon_2'`, `'manual_escalon_4'` (rescates manuales con confianza alta/media)
+- **Estado 2026 al cierre 2026-05-24**: de 61 cursos legacy con fechas 2026 originalmente sin acción → 23 rescatados con UPDATE manual (`manual_escalon_2` y `manual_escalon_4`), 38 marcados como `no_bonificado`, 0 pendientes
+
+### AlumnosIndex — rediseño columna "Curso del año" + filtros simplificados (mejorado 2026-05-24)
+- **Columnas eliminadas**: "Grupos" (badges de conteo por fuente) y "Estado" (toggle activo/inactivo). El método `toggleActivo()` también se eliminó del componente
+- **Columna nueva "Curso {año}"**: muestra el curso más reciente del alumno que toca el año filtrado, unificando las 4 fuentes (`gruposFormativos`, `participantesBonificados`, `matriculasAutonomas`, `cursosLegacy`)
+  - Método privado `resolverCursoReciente(Alumno $a, int $year): ?array` en el componente Livewire que consulta las 4 relaciones filtradas por año, mapea cada una a un array con `tipo`, `denominacion`, `accion`, `grupo`, `fecha_inicio`, `fecha_fin`, y devuelve el más reciente + conteo de otros (`otros_2026`)
+  - UI: denominación + badge de tipo + píldora indigo `acción/grupo` + fechas + botón `+N más` que abre el modal Historial
+  - Badges de tipo: `FUNDAE` azul, `FUNDAE imp.` esmeralda, `Autónomo` ámbar, `Legacy` violeta, `No bonificado` naranja claro con borde
+- **Filtro Año por defecto = año actual**: `mount()` setea `$filtroAno = (string) date('Y')` si está vacío. `limpiarFiltros()` también lo preserva al año actual
+- **Filtro de año mejorado**: usaba `whereYear('fecha_inicio')`, ahora usa rango `fecha_inicio <= 'YYYY-12-31' AND fecha_fin >= 'YYYY-01-01'` para capturar cursos que cruzan años (ej. 2025-12 → 2026-01)
+- **Alumnos sin curso en el año filtrado se ocultan** (whereHas OR entre las 4 fuentes)
+- **Filtros Tipo simplificados** (mutuamente excluyentes):
+  - `bonificado`: alumnos con `gruposFormativos` + `participantesBonificados` + `cursosLegacy` NO no_bonificado en el año, **excluyendo** alumnos con ALGÚN curso legacy `no_bonificado` en el año
+  - `autonomo`: con matrículas autónomas
+  - `no_bonificado`: con al menos un curso legacy marcado `origen_enriquecimiento='no_bonificado'`
+- Se eliminaron las opciones "Con grupos FUNDAE" y "Con historial legacy" del select (englobadas en "Bonificado")
+
+### Modal Historial — agrupación por año con destacado del año en curso (mejorado 2026-05-24)
+- Las 4 secciones del modal (Grupos FUNDAE Panel, Participación FUNDAE importada, Matrículas autónomas, Historial webcourses2014) ahora agrupan los cursos por año (`fecha_inicio?->year`)
+- El bloque del año actual (`date('Y')`) aparece **primero**, destacado visualmente:
+  - Borde izquierdo `border-l-4 border-emerald-500`, fondo `bg-emerald-50/40`
+  - Header con punto pulsante verde + texto "EN CURSO" + contador de cursos
+- Los bloques de años pasados aparecen debajo en orden descendente:
+  - Borde izquierdo gris fino, fondo gris muy claro, opacidad 90% en la tabla
+- Backend: `render()` aplica `groupBy(fn ($r) => $r->fecha_inicio?->year ?? 0)->sortKeysDesc()` a las 4 colecciones; pasa `$anoActual = (int) date('Y')` a la vista
+
 ### Reportes Moodle — Reportes 1 al 7 (módulo completo, desarrollado 2026-05-06 / 14)
 
 Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Reporte. Solo procesa alumnos cuyo grupo `estado=en_curso` y `fecha_inicio<=hoy<=fecha_fin` (año 2026).
@@ -168,7 +213,7 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 
 **Solapamiento intencional**: un mismo alumno puede aparecer en varios Reportes simultáneamente (ej. Inactivo + Riesgo crítico). Cada Reporte tiene su propio mensaje y cron.
 
-**Reporte 7 — Reinicios (sub-proyecto pendiente)**: el email al alumno No apto le ofrece reiniciar el curso para que pueda ser bonificado. El número máximo de reinicios por alumno es **configurable** (clave y default por definir). El resto de mecánicas se planificará contigo cuando se aborde Fase 7.
+**Reporte 7 — Reinicios (implementado)**: el email al alumno No apto le ofrece reiniciar el curso. El admin recibe la solicitud por `mailto:`. Tope máximo de ofrecimientos por alumno **configurable** (default 4 en 30 días). Cierre manual desde el dashboard del Reporte 7 con botón **"✓ Marcar reiniciado"** o **"✗ Rechazar"**. Auditoría en tabla `alumno_reinicio_ofrecimientos`. El registro del alumno No apto vive en `alumno_no_aptos` (estado permanente post-cierre).
 
 **Nuevas tablas:**
 - `alumno_progreso_moodle` — snapshot diario por (pivot, fecha): lastaccess, progress, nota_total, dias_inactivo, inactivo, **aprobado**, **cuestionario_final_realizado**, **riesgo_critico**, **pre_cierre**, **apto_sin_examen**, **pct_tiempo_transcurrido**, etc.
@@ -213,7 +258,15 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 - Columna "Total curso" con barra de progreso color-coded + botón "Ver notas" → modal con 40+ items por alumno
 - Modal Historial de notificaciones (clicable desde la columna Avisos)
 - Botón único "↻ Refrescar todos ahora" en el header (sin botón por fila)
+- **Switch global "Notificaciones automáticas" (ON/OFF)** en el header — kill switch operativo persistido en BD (tabla singleton `reportes_moodle_settings`, modelo `ReportesMoodleSettings`). Con flag OFF, los **7 comandos de notificación a alumno + el de tutores** retornan SUCCESS sin enviar tras un `warn("⏸ DESACTIVADAS")`. El snapshot, `detectar-no-aptos` y los `--dry-run` siguen corriendo igual. Banner amarillo persistente cuando está OFF, leyenda "Modificado por X · dd/mm HH:mm" debajo del toggle.
 - Las KPIs hacen `wire:click="abrirReporte(...)"` y la tabla cambia su contenido en vivo
+
+**Switch de notificaciones — detalle técnico:**
+- Tabla `reportes_moodle_settings` (singleton, `id=1`): `notificaciones_activas` (bool), `updated_by` (FK users nullable), `timestamps`. Migración: [`2026_05_13_000002_create_reportes_moodle_settings_table.php`](../../database/migrations/2026_05_13_000002_create_reportes_moodle_settings_table.php).
+- Default en producción: `true`. Default en `APP_ENV != production`: `false` (alineado con la regla "no enviar correos a destinatarios reales en dev/staging").
+- Helpers del modelo: `ReportesMoodleSettings::actual()`, `::notificacionesActivas()`, `->cambiarEstado($activo, $userId)`.
+- Chequeo en cada comando tras `--dry-run`: `if (!$dryRun && !ReportesMoodleSettings::notificacionesActivas()) { return self::SUCCESS; }` — patrón equivalente al de [`EnviarEmailSaldoBonificados.php:34`](../../app/Console/Commands/EnviarEmailSaldoBonificados.php).
+- Toggle UI: `wire:click="toggleNotificaciones"` con `wire:confirm`. Auditoría visible (autor + timestamp Europe/Madrid). Sin permission check Spatie por ahora.
 
 **Pre-requisito de Moodle:** 20 funciones webservice habilitadas en el token `paneldesarrollo` — las 14 originales + `core_completion_get_course_completion_status`, `core_enrol_get_enrolled_users`, `gradereport_user_get_grade_items`, `mod_quiz_get_user_attempts`, `core_course_get_categories`. Verificar con `core_webservice_get_site_info`.
 
@@ -332,20 +385,11 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 - **Email sin bonificacion**: `CredencialesMoodleMail` se envia con `esBonificado: false` → el texto de bonificacion FUNDAE no aparece en el correo del autonomo
 - **Eliminar matricula**: permitido en cualquier estado (pendiente, matriculado, error)
 
-### Identificacion visual en AlumnosIndex (actualizado 2026-04-07)
-- Badge ambar "2x1" junto al nombre del alumno en la tabla cuando tiene matriculas autonomas
-- Columna Grupos: muestra badges independientes que pueden coexistir:
-  - Grupos FUNDAE del Panel (activos + total) — badge verde/gris
-  - Participaciones FUNDAE importadas (bonificados_total) — badge esmeralda, visible solo si no tiene grupos del Panel
-  - Matriculas autonomas — badge ambar
-- Filtro "Tipo": Todos / Con grupos FUNDAE (incluye tanto grupos del Panel como participaciones importadas) / Autonomos (2x1)
-- Modal "Historial": tres secciones independientes (pueden aparecer simultaneamente):
-  1. **Grupos bonificados** (badge FUNDAE azul) — grupos creados en el Panel via GrupoFormativo
-  2. **Participacion FUNDAE importada** (badge IMPORTADO esmeralda) — datos de `participantes_bonificados` cruzados por NIF. Muestra: grupo, PIF, fechas, estado participante, estado grupo
-  3. **Matriculas autonomas** (badge 2x1 ambar) — matriculas individuales sin FUNDAE
-- Boton "Historial" visible cuando hay datos en cualquiera de las tres fuentes
-- `Alumno` model: relaciones `gruposFormativos()`, `matriculasAutonomas()`, `participantesBonificados()` (HasMany por NIF)
-- `AlumnosIndex`: `withCount` incluye `bonificados_total`, `filtroTipo='fundae'` usa `orWhereHas('participantesBonificados')`
+### Identificacion visual en AlumnosIndex — histórico (superado el 2026-05-24)
+> **Esta sección quedó obsoleta tras el rediseño del 2026-05-24**. Las columnas "Grupos" y "Estado" se eliminaron; el filtro Tipo se simplificó (Bonificado / Autónomo / No bonificado). Ver secciones **"AlumnosIndex — rediseño columna 'Curso del año'"** y **"Modal Historial — agrupación por año"** más arriba para el comportamiento actual.
+
+- Modelo `Alumno` mantiene las relaciones: `gruposFormativos()`, `matriculasAutonomas()`, `participantesBonificados()` (HasMany por NIF), `cursosLegacy()` (HasMany por NIF)
+- `AlumnosIndex` mantiene los `withCount` (`grupos_total`, `grupos_activos`, `autonomos_total`, `bonificados_total`, `legacy_total`) — los usa el modal Historial
 
 ---
 
@@ -356,7 +400,7 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 | Modelos | 23 (+ AlumnoLegacyPool, AlumnoLegacyCurso, BonificadoEmailExclusion, AlumnoProgresoMoodle, AlumnoNotificacionLog, AlumnoCalificacionMoodle, GrupoFormativoAlumno) |
 | Componentes Livewire | 14 (+ ReportesMoodleIndex) |
 | Clases Mail | 13 (+ AlumnoNoConectadoMail, AlumnoInactivoMail, AlumnoRiesgoCriticoMail, AlumnoPreCierreMail, AlumnoAptoSinExamenMail, AlumnoAptoMail, AlumnoNoAptoMail, TutorReporteSemanalMail) |
-| Comandos Artisan | 18 (+ los 8 de reportes-moodle: snapshot, notificar-no-conectados, notificar-inactivos, notificar-riesgo-critico, notificar-pre-cierre, notificar-apto-sin-examen, notificar-apto, detectar-no-aptos, notificar-no-aptos, notificar-tutores) |
+| Comandos Artisan | 19 (+ los 8 de reportes-moodle: snapshot, notificar-no-conectados, notificar-inactivos, notificar-riesgo-critico, notificar-pre-cierre, notificar-apto-sin-examen, notificar-apto, detectar-no-aptos, notificar-no-aptos, notificar-tutores) — añadido `alumnos:auditar-enriquecimiento-legacy` el 2026-05-24 |
 | Servicios | 5 (+ MoodleReportingService, AlumnoProgresoSnapshotter) |
 | Migraciones | 47 |
 | Configs de dominio | 4 (+ reportes_moodle.php) |
@@ -365,12 +409,12 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 
 ## Modulos pendientes de disenar y desarrollar
 
-1. **Reportes Moodle Fases 3-7** — Riesgo crítico (rojo), Pre-cierre 72h, Apto sin examen final, Apto verde, No aptos (rojo oscuro, solo post-cierre). Infraestructura ya lista (snapshot capta notas, completion, aprobado, cuestionario final); falta añadir flags al snapshot, mailables, comandos, KPIs. Fase 7 incluye sub-proyecto de **reinicios** (tope 3 por alumno).
-2. **Seguimiento academico** — progreso en Moodle (Fase 5 del flujo de matriculación)
-3. **Integracion Zoho CRM** — sincronizacion de candidatos
-4. **Facturacion** — Zoho Books (iniciar con mocks)
-5. **Cierre de expediente FUNDAE** (Fase 7)
-6. **Reorganizacion de categorias Moodle** — Activos/tutor, Repasos, Desactualizados, Plantillas
+> **Reportes Moodle: COMPLETO** (Reportes 1-7, todas las fases entregadas 2026-05-06 a 2026-05-14). Ver [`docs/reportes-moodle.md`](../../docs/reportes-moodle.md).
+
+1. **Integracion Zoho CRM** — sincronizacion de candidatos
+2. **Facturacion** — Zoho Books (iniciar con mocks)
+3. **Cierre de expediente FUNDAE** — generación de XML de finalización, comunicación al portal
+4. **Reorganizacion de categorias Moodle** — Activos/tutor, Repasos, Desactualizados, Plantillas
 
 ---
 
@@ -425,6 +469,14 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 - **Reportes Moodle — "Aprobado" FUNDAE**: `nota_total >= 50` AND `cuestionario_final_realizado`. Tener 50+ pts no basta; hay que haber rendido el cuestionario final también.
 - **Reportes Moodle — exclusión categorías Moodle "Repaso" y "Foros"**: los cursos de esas categorías Moodle no entran en ningún Reporte. Configurable en `config/reportes_moodle.php`. Resolución dinámica de nombres a IDs vía `core_course_get_categories` (función pendiente de habilitar).
 - **Reportes Moodle — dashboard híbrido con KPIs clicables**: la pantalla es a la vez resumen y selector. Las 5 KPIs son botones (`wire:click="abrirReporte(...)"`) que cambian la propiedad `$reporte` de Livewire y por tanto el filtro de la tabla. Se mantiene también el dropdown como fallback de teclado.
+
+- **AlumnosIndex — vista enfocada al año en curso (2026-05-24)**: por defecto la tabla muestra solo alumnos con al menos un curso en el año actual (`date('Y')`). Sustituye al enfoque previo que listaba todos los alumnos siempre. Razón: el flujo diario de WebCurso es 99% del año en curso; los históricos se consultan via modal Historial o cambiando el filtro Año.
+- **AlumnosIndex — columna unificada "Curso {año}" (2026-05-24)**: reemplaza las antiguas columnas "Grupos" (badges de conteo por fuente) y "Estado" (toggle activo/inactivo). Muestra el curso más reciente del año que unifica las 4 fuentes (gruposFormativos, participantesBonificados, matriculasAutonomas, cursosLegacy) con badge de tipo + píldora indigo acción/grupo + fechas + contador "+N más". Razón: la columna "Grupos" antigua tenía 4 badges con conteos sin contexto del curso real; la usuaria quería ver qué curso está haciendo cada alumno ahora.
+- **`origen_enriquecimiento='no_bonificado'` (2026-05-24)**: convención nueva para `alumnos_legacy_cursos`. Marca cursos de alumnos autónomos / privados / repaso que NO deben matchearse con grupos FUNDAE. Distingue "pendiente real (NULL)" de "revisado y descartado". El badge en UI es naranja claro (`bg-orange-100 text-amber-700`).
+- **Filtros Bonificado y No bonificado mutuamente excluyentes (2026-05-24)**: un alumno que tiene al menos un curso `no_bonificado` en el año filtrado SOLO aparece en "No bonificado", no en "Bonificado", aunque también tenga grupos FUNDAE. Razón: evita confusión visual cuando el `cursoReciente` sería el `no_bonificado` mientras el filtro dice "Bonificado".
+- **Filtro de año por rango de fechas vs `whereYear` (2026-05-24)**: el filtro Año usa `fecha_inicio <= 'YYYY-12-31' AND fecha_fin >= 'YYYY-01-01'` en vez de `whereYear('fecha_inicio')`. Razón: captura cursos que cruzan años (ej. 2025-12 → 2026-01). El antiguo `whereYear` los perdía.
+- **Modal Historial agrupado por año con destacado del año en curso (2026-05-24)**: las 4 secciones del modal (FUNDAE Panel / Bonificados / Autónomos / Legacy) agrupan cursos por año. Bloque del año actual con borde verde + fondo verde claro + texto "EN CURSO" arriba; años pasados en bloques grises atenuados abajo. Razón: cuando el alumno tiene cursos en varios años, antes se mezclaban indistinguibles en una tabla única.
+- **Rescate manual de cursos legacy con tipos `manual_escalon_2` / `manual_escalon_4` (2026-05-24)**: cuando el cron automático no rescata por falla del LIKE de nombre, se aplica UPDATE manual marcando el origen para auditoría. Permite reversión y trazabilidad. Aplicado en 23 cursos del año 2026 tras revisión del CSV de auditoría.
 
 ## Decisiones de diseno pendientes
 

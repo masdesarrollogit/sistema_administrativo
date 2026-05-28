@@ -285,12 +285,17 @@ class ParticipantesBonificadosIndex extends Component
         $nifs = collect($participantes->items())->pluck('nif_participante')->filter()->unique()->toArray();
 
         $alumnosPorNif = Alumno::whereIn('nif', $nifs)
-            ->get(['nif', 'email', 'datos_pendientes'])
+            ->get(['nif', 'email', 'telefono', 'datos_pendientes'])
             ->keyBy('nif');
 
         $emailsPorNif = $alumnosPorNif
             ->filter(fn ($a) => !empty($a->email))
             ->mapWithKeys(fn ($a) => [$a->nif => $a->email])
+            ->toArray();
+
+        $telefonosPorNif = $alumnosPorNif
+            ->filter(fn ($a) => !empty($a->telefono))
+            ->mapWithKeys(fn ($a) => [$a->nif => $a->telefono_e164])
             ->toArray();
 
         $datosPendientesPorNif = $alumnosPorNif
@@ -313,6 +318,7 @@ class ParticipantesBonificadosIndex extends Component
             'stats'                 => $this->getEstadisticas(),
             'nifsExcluidos'         => $nifsExcluidos,
             'emailsPorNif'          => $emailsPorNif,
+            'telefonosPorNif'       => $telefonosPorNif,
             'datosPendientesPorNif' => $datosPendientesPorNif,
             'ultimosEnviosPorNif'   => $ultimosEnviosPorNif,
             'cronActivo'            => config('candidatos.email_saldo_bonificados.activo', true),

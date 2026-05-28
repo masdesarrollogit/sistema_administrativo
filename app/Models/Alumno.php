@@ -102,6 +102,22 @@ class Alumno extends Model
     }
 
     /**
+     * Teléfono normalizado en formato E.164 para España (+34XXXXXXXXX).
+     * Soporta formatos: 971435090, 0034916590303, +34915489870
+     */
+    public function getTelefonoE164Attribute(): ?string
+    {
+        if (!$this->telefono) {
+            return null;
+        }
+
+        $numero = preg_replace('/[\s\-\.]/', '', $this->telefono);
+        $numero = preg_replace('/^(\+34|0034)/', '', $numero);
+
+        return '+34' . $numero;
+    }
+
+    /**
      * Verificar si el alumno tiene un grupo activo cuyas fechas se solapan con el rango dado.
      * Si no se pasan fechas, verifica solapamiento con cualquier grupo activo.
      *

@@ -67,6 +67,7 @@ php artisan alumnos:migrar-legacy --solo-pool          # Solo poblar alumnos_leg
 php artisan alumnos:migrar-legacy --solo-alumnos       # Solo crear alumnos a partir del pool
 php artisan alumnos:migrar-legacy --solo-cursos        # Solo poblar alumnos_legacy_cursos (historial)
 php artisan alumnos:enriquecer-cursos-legacy           # Rellena acción/grupo de cursos legacy via tabla `grupos` y `participantes_bonificados`
+php artisan alumnos:auditar-enriquecimiento-legacy     # Read-only: clasifica cursos legacy sin acción en 6 escalones. Flags: --year=YYYY --csv=path
 php artisan bonificados:enviar-email-saldo             # Cron mensual de email de saldo a participantes
 php artisan bonificados:enviar-email-saldo --dry-run   # Preview sin enviar
 ```

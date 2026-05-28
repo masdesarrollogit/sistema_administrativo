@@ -118,10 +118,18 @@ class AlumnosIndex extends Component
         $this->resetPage();
     }
 
+    public function mount(): void
+    {
+        if ($this->filtroAno === '') {
+            $this->filtroAno = (string) date('Y');
+        }
+    }
+
     public function limpiarFiltros(): void
     {
-        $this->reset(['search', 'filtroEmpresa', 'filtroTipo', 'filtroAno', 'filtroDesde', 'filtroHasta']);
+        $this->reset(['search', 'filtroEmpresa', 'filtroTipo', 'filtroDesde', 'filtroHasta']);
         $this->filtroActivo = '1';
+        $this->filtroAno    = (string) date('Y');
         $this->resetPage();
     }
 
@@ -197,10 +205,85 @@ class AlumnosIndex extends Component
         $this->reset(['alumnoGruposId', 'alumnoGruposNombre']);
     }
 
-    public function toggleActivo(int $id): void
+    /**
+     * Resuelve el curso más reciente del alumno cuyas fechas tocan el año dado.
+     * Unifica las 4 fuentes (gruposFormativos, participantesBonificados,
+     * matriculasAutonomas, cursosLegacy) y devuelve un array con tipo,
+     * denominación, acción/grupo, fechas y conteo de otros cursos en ese año.
+     */
+    private function resolverCursoReciente(Alumno $a, int $year): ?array
     {
-        $alumno = Alumno::findOrFail($id);
-        $alumno->update(['activo' => !$alumno->activo]);
+        $inicio = "{$year}-01-01";
+        $fin    = "{$year}-12-31";
+
+        $candidatos = collect();
+
+        foreach ($a->gruposFormativos()->with('accionFormativa')
+                    ->where('fecha_inicio', '<=', $fin)
+                    ->where('fecha_fin', '>=', $inicio)->get() as $g) {
+            $candidatos->push([
+                'tipo'         => 'FUNDAE',
+                'denominacion' => $g->accionFormativa?->denominacion_limpia ?? $g->accionFormativa?->denominacion ?? '—',
+                'accion'       => $g->accionFormativa?->numero_accion,
+                'grupo'        => $g->id_grupo_fundae,
+                'fecha_inicio' => $g->fecha_inicio,
+                'fecha_fin'    => $g->fecha_fin,
+            ]);
+        }
+
+        foreach ($a->participantesBonificados()
+                    ->where('fecha_inicio', '<=', $fin)
+                    ->where('fecha_fin', '>=', $inicio)->get() as $pb) {
+            $accion = null; $grupo = null;
+            if ($pb->id_codigo_grupo && preg_match('/\((\d+)\)\s*(\d+)\/(\d+)/', $pb->id_codigo_grupo, $m)) {
+                $accion = $m[2];
+                $grupo  = $m[3];
+            }
+            $candidatos->push([
+                'tipo'         => 'FUNDAE imp.',
+                'denominacion' => $pb->id_codigo_grupo ?: '—',
+                'accion'       => $accion,
+                'grupo'        => $grupo,
+                'fecha_inicio' => $pb->fecha_inicio,
+                'fecha_fin'    => $pb->fecha_fin,
+            ]);
+        }
+
+        foreach ($a->matriculasAutonomas()->with('accionFormativa')
+                    ->where('fecha_inicio', '<=', $fin)
+                    ->where('fecha_fin', '>=', $inicio)->get() as $ma) {
+            $candidatos->push([
+                'tipo'         => 'Autónomo',
+                'denominacion' => $ma->accionFormativa?->denominacion_limpia ?? $ma->accionFormativa?->denominacion ?? '—',
+                'accion'       => $ma->accionFormativa?->numero_accion,
+                'grupo'        => null,
+                'fecha_inicio' => $ma->fecha_inicio,
+                'fecha_fin'    => $ma->fecha_fin,
+            ]);
+        }
+
+        foreach ($a->cursosLegacy()
+                    ->where('fecha_inicio', '<=', $fin)
+                    ->where('fecha_fin', '>=', $inicio)->get() as $cl) {
+            $tipo = $cl->origen_enriquecimiento === 'no_bonificado' ? 'No bonificado' : 'Legacy';
+            $candidatos->push([
+                'tipo'         => $tipo,
+                'denominacion' => $cl->curso_titulo ?? '—',
+                'accion'       => $cl->formation_group_alpha,
+                'grupo'        => $cl->formation_group_number,
+                'fecha_inicio' => $cl->fecha_inicio,
+                'fecha_fin'    => $cl->fecha_fin,
+            ]);
+        }
+
+        if ($candidatos->isEmpty()) {
+            return null;
+        }
+
+        $ordenados = $candidatos->sortByDesc(fn ($c) => $c['fecha_inicio'])->values();
+        $reciente = $ordenados->first();
+        $reciente['otros_2026'] = $ordenados->count() - 1;
+        return $reciente;
     }
 
     public function render()
@@ -239,34 +322,58 @@ class AlumnosIndex extends Component
 
         if ($this->filtroTipo === 'autonomo') {
             $query->whereHas('matriculasAutonomas');
-        } elseif ($this->filtroTipo === 'fundae') {
-            $query->where(function ($q) {
-                $q->whereHas('gruposFormativos')
-                  ->orWhereHas('participantesBonificados');
+        } elseif ($this->filtroTipo === 'bonificado') {
+            // Aplica el rango del año filtrado a las subqueries (si filtroAno está activo)
+            // para que la exclusión de no_bonificado también respete el año.
+            $aplicarAnio = function ($q) {
+                if ($this->filtroAno !== '') {
+                    $q->where('fecha_inicio', '<=', "{$this->filtroAno}-12-31")
+                      ->where('fecha_fin', '>=', "{$this->filtroAno}-01-01");
+                }
+            };
+            $query->where(function ($q) use ($aplicarAnio) {
+                $q->whereHas('gruposFormativos', $aplicarAnio)
+                  ->orWhereHas('participantesBonificados', $aplicarAnio)
+                  ->orWhereHas('cursosLegacy', function ($s) use ($aplicarAnio) {
+                      $s->where(function ($w) {
+                          $w->whereNull('origen_enriquecimiento')
+                            ->orWhere('origen_enriquecimiento', '!=', 'no_bonificado');
+                      });
+                      $aplicarAnio($s);
+                  });
+            })
+            // Mutuamente excluyente con el filtro "no_bonificado":
+            // excluir alumnos que tengan algún curso legacy marcado no_bonificado en el año.
+            ->whereDoesntHave('cursosLegacy', function ($q) use ($aplicarAnio) {
+                $q->where('origen_enriquecimiento', 'no_bonificado');
+                $aplicarAnio($q);
             });
-        } elseif ($this->filtroTipo === 'legacy') {
-            $query->whereHas('cursosLegacy');
+        } elseif ($this->filtroTipo === 'no_bonificado') {
+            $query->whereHas('cursosLegacy', fn ($q) => $q->where('origen_enriquecimiento', 'no_bonificado'));
         }
 
-        // Filtro por año / rango de fechas — busca en cualquiera de las 4 fuentes de cursos
+        // Filtro por año / rango de fechas — busca en cualquiera de las 4 fuentes de cursos.
+        // Captura cursos cuyo PERIODO toca el rango (no solo los que empiezan en él),
+        // para incluir cursos que cruzan años (ej. 2025-12 → 2026-01).
         if ($this->filtroAno || $this->filtroDesde || $this->filtroHasta) {
             $query->where(function ($q) {
-                $aplicarRango = function ($sub, string $columna) {
+                $aplicarRango = function ($sub) {
                     if ($this->filtroAno) {
-                        $sub->whereYear($columna, $this->filtroAno);
+                        $sub->where('fecha_inicio', '<=', "{$this->filtroAno}-12-31")
+                            ->where('fecha_fin', '>=', "{$this->filtroAno}-01-01");
                     }
                     if ($this->filtroDesde) {
-                        $sub->where($columna, '>=', $this->filtroDesde);
+                        $sub->where('fecha_fin', '>=', $this->filtroDesde);
                     }
                     if ($this->filtroHasta) {
-                        $sub->where($columna, '<=', $this->filtroHasta);
+                        $sub->where('fecha_inicio', '<=', $this->filtroHasta);
                     }
                 };
 
-                $q->whereHas('gruposFormativos', fn ($s) => $aplicarRango($s, 'fecha_inicio'))
-                  ->orWhereHas('participantesBonificados', fn ($s) => $aplicarRango($s, 'fecha_inicio'))
-                  ->orWhereHas('matriculasAutonomas', fn ($s) => $aplicarRango($s, 'fecha_inicio'))
-                  ->orWhereHas('cursosLegacy', fn ($s) => $aplicarRango($s, 'fecha_inicio'));
+                $q->whereHas('gruposFormativos', fn ($s) => $aplicarRango($s))
+                  ->orWhereHas('participantesBonificados', fn ($s) => $aplicarRango($s))
+                  ->orWhereHas('matriculasAutonomas', fn ($s) => $aplicarRango($s))
+                  ->orWhereHas('cursosLegacy', fn ($s) => $aplicarRango($s));
             });
         }
 
@@ -275,10 +382,15 @@ class AlumnosIndex extends Component
             ->orderBy('nombre')
             ->paginate(25);
 
-        $gruposDelAlumno = null;
-        $autonomosDelAlumno = null;
-        $bonificadosDelAlumno = null;
-        $legacyDelAlumno = null;
+        $anoEfectivo = $this->filtroAno !== '' ? (int) $this->filtroAno : (int) date('Y');
+        $alumnos->getCollection()->each(function ($a) use ($anoEfectivo) {
+            $a->cursoReciente = $this->resolverCursoReciente($a, $anoEfectivo);
+        });
+
+        $gruposPorAnio = null;
+        $autonomosPorAnio = null;
+        $bonificadosPorAnio = null;
+        $legacyPorAnio = null;
         if ($this->mostrarModalGrupos && $this->alumnoGruposId) {
             $alumnoModal = Alumno::findOrFail($this->alumnoGruposId);
             $gruposDelAlumno = $alumnoModal
@@ -309,6 +421,15 @@ class AlumnosIndex extends Component
             $accionesPorNumero = \App\Models\AccionFormativa::whereIn('numero_accion', $numerosAccion)
                 ->get(['id', 'numero_accion', 'denominacion', 'horas'])
                 ->keyBy('numero_accion');
+
+            $agruparPorAnio = fn ($coleccion) => $coleccion
+                ->groupBy(fn ($r) => $r->fecha_inicio?->year ?? 0)
+                ->sortKeysDesc();
+
+            $gruposPorAnio       = $agruparPorAnio($gruposDelAlumno);
+            $autonomosPorAnio    = $agruparPorAnio($autonomosDelAlumno);
+            $bonificadosPorAnio  = $agruparPorAnio($bonificadosDelAlumno);
+            $legacyPorAnio       = $agruparPorAnio($legacyDelAlumno);
         }
 
         $aniosDisponibles = collect()
@@ -324,12 +445,13 @@ class AlumnosIndex extends Component
 
         return view('livewire.webcurso.alumnos-index', [
             'alumnos'               => $alumnos,
-            'gruposDelAlumno'       => $gruposDelAlumno,
-            'autonomosDelAlumno'    => $autonomosDelAlumno,
-            'bonificadosDelAlumno'  => $bonificadosDelAlumno,
-            'legacyDelAlumno'       => $legacyDelAlumno,
+            'gruposPorAnio'         => $gruposPorAnio,
+            'autonomosPorAnio'      => $autonomosPorAnio,
+            'bonificadosPorAnio'    => $bonificadosPorAnio,
+            'legacyPorAnio'         => $legacyPorAnio,
             'accionesPorNumero'     => $accionesPorNumero ?? collect(),
             'aniosDisponibles'      => $aniosDisponibles,
+            'anoActual'             => (int) date('Y'),
         ])->layout('layouts.app', ['title' => 'Alumnos - WebCurso']);
     }
 }

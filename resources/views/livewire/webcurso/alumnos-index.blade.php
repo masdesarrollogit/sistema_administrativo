@@ -41,9 +41,9 @@
                     <select wire:model.live="filtroTipo"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-indigo-500 focus:border-indigo-500">
                         <option value="">Todos</option>
-                        <option value="fundae">Con grupos FUNDAE</option>
+                        <option value="bonificado">Bonificado</option>
                         <option value="autonomo">Autónomos (2x1)</option>
-                        <option value="legacy">Con historial legacy</option>
+                        <option value="no_bonificado">No bonificado</option>
                     </select>
                 </div>
                 <div class="flex items-end">
@@ -90,8 +90,9 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">NIF</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grupos</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                            Curso {{ $filtroAno !== '' ? $filtroAno : 'más reciente' }}
+                        </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Acciones</th>
                     </tr>
                 </thead>
@@ -99,8 +100,19 @@
                     @forelse($alumnos as $alumno)
                         <tr class="hover:bg-gray-50">
                             <td class="px-6 py-4">
-                                <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-1.5">
                                     <span class="text-sm font-medium text-gray-900">{{ $alumno->nombre_completo }}</span>
+                                    @if($alumno->telefono)
+                                        <a href="tel:{{ $alumno->telefono_e164 }}"
+                                           title="Llamar a {{ $alumno->telefono_e164 }}"
+                                           class="text-gray-400 hover:text-indigo-600 transition-colors"
+                                           onclick="event.stopPropagation()">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 7V5z"/>
+                                            </svg>
+                                        </a>
+                                    @endif
                                     @if($alumno->autonomos_total > 0)
                                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200"
                                               title="{{ $alumno->autonomos_total }} matrícula{{ $alumno->autonomos_total > 1 ? 's' : '' }} autónoma{{ $alumno->autonomos_total > 1 ? 's' : '' }}">
@@ -121,42 +133,47 @@
                                 @endif
                             </td>
                             <td class="px-6 py-4">
-                                <div class="flex flex-wrap gap-1 items-center">
-                                    @if($alumno->grupos_total > 0)
-                                        @if($alumno->grupos_activos > 0)
-                                            <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                                                {{ $alumno->grupos_activos }} activo{{ $alumno->grupos_activos > 1 ? 's' : '' }}
+                                @if($alumno->cursoReciente)
+                                    @php
+                                        $cr = $alumno->cursoReciente;
+                                        $tipoClases = match($cr['tipo']) {
+                                            'FUNDAE'        => 'bg-blue-100 text-blue-700',
+                                            'FUNDAE imp.'   => 'bg-emerald-100 text-emerald-700',
+                                            'Autónomo'      => 'bg-amber-100 text-amber-700',
+                                            'Legacy'        => 'bg-violet-100 text-violet-700',
+                                            'No bonificado' => 'bg-orange-100 text-amber-700 border border-orange-200',
+                                            default         => 'bg-gray-100 text-gray-700',
+                                        };
+                                    @endphp
+                                    <div class="flex items-start gap-2">
+                                        <span class="text-sm font-medium text-gray-900">{{ $cr['denominacion'] }}</span>
+                                        <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap {{ $tipoClases }}">
+                                            {{ $cr['tipo'] }}
+                                        </span>
+                                    </div>
+                                    <div class="text-xs text-gray-500 mt-1 flex items-center flex-wrap gap-x-2 gap-y-1">
+                                        @if($cr['accion'])
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-indigo-100 text-indigo-700 border border-indigo-200"
+                                                  title="Acción / Grupo">
+                                                {{ $cr['accion'] }}/{{ $cr['grupo'] ?? '—' }}
                                             </span>
                                         @endif
-                                        <span class="text-xs text-gray-500">{{ $alumno->grupos_total }} FUNDAE</span>
-                                    @endif
-                                    @if($alumno->bonificados_total > 0 && $alumno->grupos_total == 0)
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-800"
-                                              title="Participaciones importadas de FUNDAE">
-                                            {{ $alumno->bonificados_total }} FUNDAE
+                                        <span class="text-gray-600">
+                                            {{ optional($cr['fecha_inicio'])->format('d/m/Y') ?? '—' }}
+                                            <span class="text-gray-400">→</span>
+                                            {{ optional($cr['fecha_fin'])->format('d/m/Y') ?? '—' }}
                                         </span>
-                                    @endif
-                                    @if($alumno->autonomos_total > 0)
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
-                                            {{ $alumno->autonomos_total }} autónomo{{ $alumno->autonomos_total > 1 ? 's' : '' }}
-                                        </span>
-                                    @endif
-                                    @if($alumno->legacy_total > 0)
-                                        <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-violet-100 text-violet-700"
-                                              title="Cursos realizados en sistema legacy webcourses2014">
-                                            {{ $alumno->legacy_total }} legacy
-                                        </span>
-                                    @endif
-                                    @if($alumno->grupos_total == 0 && $alumno->bonificados_total == 0 && $alumno->autonomos_total == 0 && $alumno->legacy_total == 0)
-                                        <span class="text-xs text-gray-400">—</span>
-                                    @endif
-                                </div>
-                            </td>
-                            <td class="px-6 py-4">
-                                <button wire:click="toggleActivo({{ $alumno->id }})"
-                                        class="inline-flex px-2 py-1 text-xs font-semibold rounded-full cursor-pointer {{ $alumno->activo ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-red-100 text-red-800 hover:bg-red-200' }}">
-                                    {{ $alumno->activo ? 'Activo' : 'Inactivo' }}
-                                </button>
+                                        @if(($cr['otros_2026'] ?? 0) > 0)
+                                            <span class="text-gray-400">·</span>
+                                            <button wire:click="abrirModalGrupos({{ $alumno->id }})"
+                                                    class="text-indigo-600 hover:underline">
+                                                +{{ $cr['otros_2026'] }} más
+                                            </button>
+                                        @endif
+                                    </div>
+                                @else
+                                    <span class="text-xs text-gray-400">—</span>
+                                @endif
                             </td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
@@ -175,7 +192,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+                            <td colspan="6" class="px-6 py-12 text-center text-gray-500">
                                 No se encontraron alumnos.
                             </td>
                         </tr>
@@ -362,13 +379,21 @@
                     </div>
                 </div>
 
-                @if($gruposDelAlumno && $gruposDelAlumno->isNotEmpty())
+                @if($gruposPorAnio && $gruposPorAnio->isNotEmpty())
                     <div>
                         <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                             <span class="inline-flex px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700">FUNDAE</span>
                             Grupos bonificados
                         </h3>
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        @foreach($gruposPorAnio->sortKeysUsing(fn($a,$b)=>($a===$anoActual?-1:($b===$anoActual?1:$b<=>$a))) as $anio => $cursos)
+                            @php $esActual = ($anio === $anoActual); @endphp
+                            <div class="rounded-lg p-3 mb-3 {{ $esActual ? 'border-l-4 border-emerald-500 bg-emerald-50/40' : 'border-l-2 border-gray-300 bg-gray-50/30' }}">
+                                <h4 class="text-xs font-semibold mb-2 flex items-center gap-2 uppercase tracking-wide {{ $esActual ? 'text-emerald-700' : 'text-gray-500' }}">
+                                    @if($esActual)<span class="inline-flex w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>@endif
+                                    {{ $anio ?: 'Sin fecha' }}{{ $esActual ? ' (EN CURSO)' : '' }}
+                                    <span class="text-[10px] font-normal {{ $esActual ? 'text-emerald-600' : 'text-gray-400' }}">· {{ $cursos->count() }} curso{{ $cursos->count() > 1 ? 's' : '' }}</span>
+                                </h4>
+                                <table class="min-w-full divide-y text-sm bg-white rounded {{ $esActual ? 'divide-emerald-100' : 'divide-gray-200 opacity-90' }}">
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Acción formativa</th>
@@ -379,7 +404,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                @foreach($gruposDelAlumno as $grupo)
+                                @foreach($cursos as $grupo)
                                     <tr class="hover:bg-gray-50">
                                         <td class="px-4 py-3">
                                             <div class="font-medium text-gray-900">{{ $grupo->accionFormativa?->denominacion ?? '—' }}</div>
@@ -429,16 +454,26 @@
                                 @endforeach
                             </tbody>
                         </table>
+                            </div>
+                        @endforeach
                     </div>
                 @endif
 
-                @if($bonificadosDelAlumno && $bonificadosDelAlumno->isNotEmpty())
+                @if($bonificadosPorAnio && $bonificadosPorAnio->isNotEmpty())
                     <div class="mt-4">
                         <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                             <span class="inline-flex px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-800">IMPORTADO</span>
                             Participación FUNDAE (importada)
                         </h3>
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        @foreach($bonificadosPorAnio->sortKeysUsing(fn($a,$b)=>($a===$anoActual?-1:($b===$anoActual?1:$b<=>$a))) as $anio => $cursos)
+                            @php $esActual = ($anio === $anoActual); @endphp
+                            <div class="rounded-lg p-3 mb-3 {{ $esActual ? 'border-l-4 border-emerald-500 bg-emerald-50/40' : 'border-l-2 border-gray-300 bg-gray-50/30' }}">
+                                <h4 class="text-xs font-semibold mb-2 flex items-center gap-2 uppercase tracking-wide {{ $esActual ? 'text-emerald-700' : 'text-gray-500' }}">
+                                    @if($esActual)<span class="inline-flex w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>@endif
+                                    {{ $anio ?: 'Sin fecha' }}{{ $esActual ? ' (EN CURSO)' : '' }}
+                                    <span class="text-[10px] font-normal {{ $esActual ? 'text-emerald-600' : 'text-gray-400' }}">· {{ $cursos->count() }} curso{{ $cursos->count() > 1 ? 's' : '' }}</span>
+                                </h4>
+                                <table class="min-w-full divide-y text-sm bg-white rounded {{ $esActual ? 'divide-emerald-100' : 'divide-gray-200 opacity-90' }}">
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Grupo</th>
@@ -449,7 +484,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                @foreach($bonificadosDelAlumno as $pb)
+                                @foreach($cursos as $pb)
                                     <tr class="hover:bg-emerald-50">
                                         <td class="px-4 py-3 font-medium text-gray-900">{{ $pb->id_codigo_grupo ?? '—' }}</td>
                                         <td class="px-4 py-3 text-gray-700">{{ $pb->codigo_pif ?? '—' }}</td>
@@ -474,16 +509,26 @@
                                 @endforeach
                             </tbody>
                         </table>
+                            </div>
+                        @endforeach
                     </div>
                 @endif
 
-                @if($autonomosDelAlumno && $autonomosDelAlumno->isNotEmpty())
+                @if($autonomosPorAnio && $autonomosPorAnio->isNotEmpty())
                     <div class="mt-4">
                         <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                             <span class="inline-flex px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-700 border border-amber-200">2x1</span>
                             Matrículas autónomas
                         </h3>
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        @foreach($autonomosPorAnio->sortKeysUsing(fn($a,$b)=>($a===$anoActual?-1:($b===$anoActual?1:$b<=>$a))) as $anio => $cursos)
+                            @php $esActual = ($anio === $anoActual); @endphp
+                            <div class="rounded-lg p-3 mb-3 {{ $esActual ? 'border-l-4 border-emerald-500 bg-emerald-50/40' : 'border-l-2 border-gray-300 bg-gray-50/30' }}">
+                                <h4 class="text-xs font-semibold mb-2 flex items-center gap-2 uppercase tracking-wide {{ $esActual ? 'text-emerald-700' : 'text-gray-500' }}">
+                                    @if($esActual)<span class="inline-flex w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>@endif
+                                    {{ $anio ?: 'Sin fecha' }}{{ $esActual ? ' (EN CURSO)' : '' }}
+                                    <span class="text-[10px] font-normal {{ $esActual ? 'text-emerald-600' : 'text-gray-400' }}">· {{ $cursos->count() }} curso{{ $cursos->count() > 1 ? 's' : '' }}</span>
+                                </h4>
+                                <table class="min-w-full divide-y text-sm bg-white rounded {{ $esActual ? 'divide-emerald-100' : 'divide-gray-200 opacity-90' }}">
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Acción formativa</th>
@@ -493,7 +538,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                @foreach($autonomosDelAlumno as $ma)
+                                @foreach($cursos as $ma)
                                     <tr class="hover:bg-amber-50">
                                         <td class="px-4 py-3">
                                             <div class="font-medium text-gray-900">{{ $ma->accionFormativa?->denominacion_limpia ?? '—' }}</div>
@@ -523,16 +568,26 @@
                                 @endforeach
                             </tbody>
                         </table>
+                            </div>
+                        @endforeach
                     </div>
                 @endif
 
-                @if($legacyDelAlumno && $legacyDelAlumno->isNotEmpty())
+                @if($legacyPorAnio && $legacyPorAnio->isNotEmpty())
                     <div class="mt-6">
                         <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2 flex items-center gap-2">
                             <span class="inline-flex px-2 py-0.5 rounded text-xs bg-violet-100 text-violet-700">LEGACY</span>
                             Historial webcourses2014
                         </h3>
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        @foreach($legacyPorAnio->sortKeysUsing(fn($a,$b)=>($a===$anoActual?-1:($b===$anoActual?1:$b<=>$a))) as $anio => $cursos)
+                            @php $esActual = ($anio === $anoActual); @endphp
+                            <div class="rounded-lg p-3 mb-3 {{ $esActual ? 'border-l-4 border-emerald-500 bg-emerald-50/40' : 'border-l-2 border-gray-300 bg-gray-50/30' }}">
+                                <h4 class="text-xs font-semibold mb-2 flex items-center gap-2 uppercase tracking-wide {{ $esActual ? 'text-emerald-700' : 'text-gray-500' }}">
+                                    @if($esActual)<span class="inline-flex w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>@endif
+                                    {{ $anio ?: 'Sin fecha' }}{{ $esActual ? ' (EN CURSO)' : '' }}
+                                    <span class="text-[10px] font-normal {{ $esActual ? 'text-emerald-600' : 'text-gray-400' }}">· {{ $cursos->count() }} curso{{ $cursos->count() > 1 ? 's' : '' }}</span>
+                                </h4>
+                                <table class="min-w-full divide-y text-sm bg-white rounded {{ $esActual ? 'divide-emerald-100' : 'divide-gray-200 opacity-90' }}">
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Curso (legacy)</th>
@@ -543,7 +598,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200">
-                                @foreach($legacyDelAlumno as $cl)
+                                @foreach($cursos as $cl)
                                     @php
                                         $accionPanel = $cl->formation_group_alpha ? ($accionesPorNumero[$cl->formation_group_alpha] ?? null) : null;
                                     @endphp
@@ -603,6 +658,8 @@
                                 @endforeach
                             </tbody>
                         </table>
+                            </div>
+                        @endforeach
                     </div>
                 @endif
 
