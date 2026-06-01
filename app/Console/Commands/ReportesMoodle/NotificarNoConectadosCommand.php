@@ -6,10 +6,10 @@ use App\Mail\AlumnoNoConectadoMail;
 use App\Models\AlumnoNotificacionLog;
 use App\Models\AlumnoProgresoMoodle;
 use App\Models\ReportesMoodleSettings;
+use App\Support\MoodlePassword;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Str;
 
 class NotificarNoConectadosCommand extends Command
 {
@@ -86,8 +86,7 @@ class NotificarNoConectadosCommand extends Command
                 continue;
             }
 
-            $primerNombre = Str::ucfirst(Str::lower(explode(' ', trim($alumno->nombre))[0] ?? ''));
-            $password = $primerNombre . '4444*';
+            $password = MoodlePassword::generar($alumno->nombre);
             $username = $pivot->moodle_username ?? $alumno->email;
             $intento = $enviados + 1;
 

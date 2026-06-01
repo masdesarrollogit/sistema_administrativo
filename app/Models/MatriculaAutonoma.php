@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\MoodlePassword;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Log;
@@ -78,8 +79,7 @@ class MatriculaAutonoma extends Model
 
         try {
             $username = $alumno->email ?? "{$alumno->nif}@webcurso.es";
-            $primerNombre = Str::ucfirst(Str::lower(explode(' ', trim($alumno->nombre))[0]));
-            $password = $primerNombre . '4444*';
+            $password = MoodlePassword::generar($alumno->nombre);
 
             // Buscar usuario existente o crear
             $existente = $moodle->findUserByUsername($username);

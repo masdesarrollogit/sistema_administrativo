@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use App\Support\MoodlePassword;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -244,9 +245,7 @@ class GrupoFormativo extends Model
                 // Username = email del alumno
                 $username = $alumno->email ?? "{$alumno->nif}@webcurso.es";
 
-                // Contraseña: primer nombre + 4444*
-                $primerNombre = Str::ucfirst(Str::lower(explode(' ', trim($alumno->nombre))[0]));
-                $password = $primerNombre . '4444*';
+                $password = MoodlePassword::generar($alumno->nombre);
 
                 // Buscar usuario existente o crear
                 $existente = $moodle->findUserByUsername($username);
