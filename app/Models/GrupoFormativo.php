@@ -68,7 +68,10 @@ class GrupoFormativo extends Model
     public function alumnos(): BelongsToMany
     {
         return $this->belongsToMany(Alumno::class, 'grupo_formativo_alumno')
-            ->withPivot(['moodle_user_id', 'moodle_username', 'estado_moodle', 'intentos_moodle', 'ultimo_error_moodle'])
+            ->withPivot([
+                'moodle_user_id', 'moodle_username', 'estado_moodle', 'intentos_moodle', 'ultimo_error_moodle',
+                'ficha_inscripcion_path', 'ficha_inscripcion_tipo', 'ficha_inscripcion_subida_en',
+            ])
             ->withTimestamps();
     }
 

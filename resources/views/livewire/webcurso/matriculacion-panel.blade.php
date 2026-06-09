@@ -366,6 +366,11 @@
                                                     @endif
                                                 </td>
                                                 <td class="py-1 flex gap-2">
+                                                    @if($alumnoGrupo->pivot->ficha_inscripcion_path)
+                                                        <button wire:click="descargarFichaPdf({{ $grupo->id }}, {{ $alumnoGrupo->id }})"
+                                                                title="Descargar Ficha PDF archivada"
+                                                                class="text-purple-600 hover:text-purple-800 text-xs">📎 PDF</button>
+                                                    @endif
                                                     @if(in_array($grupo->estado, ['abierto', 'en_curso']))
                                                         <button wire:click="abrirEditarAlumno({{ $alumnoGrupo->id }})"
                                                                 class="text-amber-600 hover:text-amber-800 text-xs">Editar</button>
@@ -521,7 +526,210 @@
                                     @endif
                                 </div>
 
-                                {{-- ── Sección 3: Seleccionar alumnos ya registrados ── --}}
+                                {{-- ── Sección 3: Subir Ficha PDF (1 alumno por PDF, varios PDFs) ── --}}
+                                <div>
+                                    <button wire:click="toggleSubidaPdf"
+                                            class="text-xs text-purple-700 hover:text-purple-900 font-semibold underline underline-offset-2">
+                                        {{ $mostrarSubidaPdf ? '▲ Ocultar subida de Fichas PDF' : '▼ Subir Ficha PDF (Encomienda / Inscripción)' }}
+                                    </button>
+
+                                    @if($mostrarSubidaPdf)
+                                        <div class="mt-2 p-3 bg-white border border-purple-200 rounded-lg space-y-3">
+                                            <p class="text-xs text-gray-500">
+                                                Sube uno o varios PDFs (Ficha de Inscripción o Contrato de Encomienda WebCurso 2026).
+                                                Se extraen automáticamente los datos del alumno y se muestra un preview editable
+                                                antes de guardar. Máximo 20 PDFs, 10 MB cada uno.
+                                            </p>
+
+                                            <div class="flex flex-wrap items-center gap-3">
+                                                <input type="file"
+                                                       wire:model="archivosPdf"
+                                                       accept="application/pdf"
+                                                       multiple
+                                                       class="text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer">
+
+                                                <span wire:loading wire:target="archivosPdf"
+                                                      class="text-xs text-gray-500 italic">Cargando…</span>
+
+                                                @if(!empty($archivosPdf))
+                                                    <button wire:click="procesarPdfs"
+                                                            wire:loading.attr="disabled"
+                                                            wire:target="procesarPdfs"
+                                                            class="px-3 py-1.5 bg-purple-600 text-white rounded text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
+                                                        Procesar {{ count($archivosPdf) }} PDF{{ count($archivosPdf) > 1 ? 's' : '' }}
+                                                    </button>
+                                                @endif
+                                            </div>
+                                            @error('archivosPdf') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                            @error('archivosPdf.*') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+
+                                            {{-- Preview de PDFs procesados --}}
+                                            @if(!empty($previewPdfs))
+                                                <div class="border-t border-purple-100 pt-3 mt-3">
+                                                    <div class="flex items-center justify-between mb-2">
+                                                        <p class="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+                                                            Preview ({{ count($previewPdfs) }} PDF{{ count($previewPdfs) > 1 ? 's' : '' }})
+                                                        </p>
+                                                        <span class="text-xs text-gray-500">
+                                                            <span class="inline-block w-2 h-2 bg-yellow-300 rounded mr-1"></span>inferido
+                                                            <span class="inline-block w-2 h-2 bg-red-400 rounded ml-2 mr-1"></span>obligatorio faltante
+                                                        </span>
+                                                    </div>
+
+                                                    <div class="space-y-3">
+                                                        @foreach($previewPdfs as $i => $fila)
+                                                            @php
+                                                                $tipoBadgeClass = match($fila['tipo']) {
+                                                                    'ficha'      => 'bg-blue-100 text-blue-700 border-blue-200',
+                                                                    'encomienda' => 'bg-indigo-100 text-indigo-700 border-indigo-200',
+                                                                    'ilegible'   => 'bg-red-100 text-red-700 border-red-200',
+                                                                    default      => 'bg-gray-100 text-gray-700 border-gray-200',
+                                                                };
+                                                                $tipoLabel = match($fila['tipo']) {
+                                                                    'ficha'      => 'Ficha',
+                                                                    'encomienda' => 'Encomienda',
+                                                                    'ilegible'   => 'Ilegible · manual',
+                                                                    default      => 'Desconocido',
+                                                                };
+                                                                $estadoBadge = match($fila['estado']) {
+                                                                    'crear'      => ['bg-emerald-100 text-emerald-700 border-emerald-200', 'Crear'],
+                                                                    'actualizar' => ['bg-amber-100 text-amber-700 border-amber-200', 'Actualizar'],
+                                                                    'duplicado'  => ['bg-gray-200 text-gray-600 border-gray-300', 'Duplicado · ignorado'],
+                                                                    default      => ['bg-gray-100 text-gray-700 border-gray-200', 'Pendiente'],
+                                                                };
+                                                                $inferidos = $fila['inferidos'] ?? [];
+                                                                $faltantes = $fila['faltantes'] ?? [];
+                                                                $esOcr = ($fila['origen'] ?? null) === 'ocr';
+                                                            @endphp
+
+                                                            <div class="border rounded-lg p-3 {{ $fila['estado'] === 'duplicado' ? 'bg-gray-50 opacity-70' : 'bg-white' }}">
+                                                                <div class="flex items-center justify-between mb-2">
+                                                                    <div class="flex items-center gap-2 text-xs">
+                                                                        <span class="inline-block px-2 py-0.5 rounded border {{ $tipoBadgeClass }} font-semibold">{{ $tipoLabel }}</span>
+                                                                        @if($esOcr)
+                                                                            <span class="inline-block px-2 py-0.5 rounded border bg-orange-100 text-orange-700 border-orange-200 font-semibold"
+                                                                                  title="Datos extraídos vía OCR — revisa con cuidado">🔍 OCR</span>
+                                                                        @endif
+                                                                        <span class="inline-block px-2 py-0.5 rounded border {{ $estadoBadge[0] }} font-semibold">{{ $estadoBadge[1] }}</span>
+                                                                        <span class="text-gray-500 truncate max-w-md" title="{{ $fila['archivo_nombre'] }}">📄 {{ $fila['archivo_nombre'] }}</span>
+                                                                    </div>
+                                                                    <button wire:click="quitarPdfPreview({{ $i }})"
+                                                                            class="text-xs text-red-600 hover:text-red-800 font-semibold">✕ Quitar</button>
+                                                                </div>
+
+                                                                @if(!empty($fila['avisos']))
+                                                                    <div class="mb-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                                                                        @foreach($fila['avisos'] as $aviso)
+                                                                            <p>⚠ {{ $aviso }}</p>
+                                                                        @endforeach
+                                                                    </div>
+                                                                @endif
+
+                                                                <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                                    @foreach(['nombre' => 'Nombre *', 'apellido1' => 'Apellido 1 *', 'apellido2' => 'Apellido 2', 'nif' => 'NIF *', 'email' => 'Email *', 'telefono' => 'Teléfono', 'fecha_nacimiento' => 'Fecha nac.', 'niss' => 'NISS'] as $campo => $label)
+                                                                        @php
+                                                                            $bg = '';
+                                                                            if (in_array($campo, $inferidos, true)) $bg = 'bg-yellow-50 border-yellow-300';
+                                                                            elseif (in_array($campo, $faltantes, true)) $bg = 'bg-red-50 border-red-300';
+                                                                            $diff = $fila['diff'][$campo] ?? null;
+                                                                        @endphp
+                                                                        <div>
+                                                                            <label class="block text-[10px] text-gray-500 mb-0.5">{{ $label }}</label>
+                                                                            <input type="text"
+                                                                                   wire:model.lazy="previewPdfs.{{ $i }}.datos.{{ $campo }}"
+                                                                                   class="w-full px-2 py-1 border rounded text-xs {{ $bg }}"
+                                                                                   @if($diff) title="antes: {{ $diff['antes'] ?: '—' }} → ahora: {{ $diff['ahora'] }}" @endif>
+                                                                        </div>
+                                                                    @endforeach
+
+                                                                    <div>
+                                                                        <label class="block text-[10px] text-gray-500 mb-0.5">Sexo</label>
+                                                                        <select wire:model.lazy="previewPdfs.{{ $i }}.datos.sexo"
+                                                                                class="w-full px-2 py-1 border rounded text-xs">
+                                                                            <option value="">—</option>
+                                                                            <option value="H">H</option>
+                                                                            <option value="M">M</option>
+                                                                        </select>
+                                                                    </div>
+
+                                                                    <div>
+                                                                        <label class="block text-[10px] text-gray-500 mb-0.5">
+                                                                            Grupo cotización TGSS
+                                                                            @if(in_array('grupo_cotizacion_tgss', $inferidos)) <span class="text-yellow-700">⚠</span> @endif
+                                                                        </label>
+                                                                        <select wire:model.lazy="previewPdfs.{{ $i }}.datos.grupo_cotizacion_tgss"
+                                                                                class="w-full px-2 py-1 border rounded text-xs {{ in_array('grupo_cotizacion_tgss', $inferidos) ? 'bg-yellow-50 border-yellow-300' : '' }}">
+                                                                            <option value="">—</option>
+                                                                            @foreach(range(1, 11) as $n)
+                                                                                <option value="{{ $n }}">{{ $n }}</option>
+                                                                            @endforeach
+                                                                        </select>
+                                                                    </div>
+
+                                                                    <div>
+                                                                        <label class="block text-[10px] text-gray-500 mb-0.5">
+                                                                            Nivel estudios
+                                                                            @if(in_array('nivel_estudios', $inferidos)) <span class="text-yellow-700">⚠ inferido</span> @endif
+                                                                        </label>
+                                                                        <select wire:model.lazy="previewPdfs.{{ $i }}.datos.nivel_estudios"
+                                                                                class="w-full px-2 py-1 border rounded text-xs {{ in_array('nivel_estudios', $inferidos) ? 'bg-yellow-50 border-yellow-300' : '' }}">
+                                                                            <option value="">—</option>
+                                                                            <option value="1">1 - Menos que primaria</option>
+                                                                            <option value="2">2 - Primaria</option>
+                                                                            <option value="3">3 - ESO/EGB</option>
+                                                                            <option value="4">4 - Bachillerato/FP medio</option>
+                                                                            <option value="5">5 - Postsecundaria no superior</option>
+                                                                            <option value="6">6 - Técnico Sup./FP superior</option>
+                                                                            <option value="7">7 - Diplomatura/Grado</option>
+                                                                            <option value="8">8 - Licenciatura/Máster</option>
+                                                                            <option value="9">9 - Doctorado</option>
+                                                                            <option value="10">10 - Otras</option>
+                                                                        </select>
+                                                                    </div>
+
+                                                                    <div>
+                                                                        <label class="block text-[10px] text-gray-500 mb-0.5">Categoría profesional</label>
+                                                                        <select wire:model.lazy="previewPdfs.{{ $i }}.datos.categoria_profesional"
+                                                                                class="w-full px-2 py-1 border rounded text-xs">
+                                                                            <option value="">—</option>
+                                                                            <option value="1">1 - Directivo</option>
+                                                                            <option value="2">2 - Mando intermedio</option>
+                                                                            <option value="3">3 - Técnico</option>
+                                                                            <option value="4">4 - Trabajador cualificado</option>
+                                                                            <option value="5">5 - Baja cualificación</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+
+                                                                @if($fila['datos']['curso_pdf'] || $fila['datos']['horas_pdf'] || $fila['datos']['cargo'] || $fila['datos']['empresa_razon_social'])
+                                                                    <div class="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500 flex flex-wrap gap-3">
+                                                                        @if($fila['datos']['curso_pdf']) <span>📚 Curso: <span class="text-gray-700">{{ $fila['datos']['curso_pdf'] }}</span></span> @endif
+                                                                        @if($fila['datos']['horas_pdf']) <span>⏱ Horas: <span class="text-gray-700">{{ $fila['datos']['horas_pdf'] }}</span></span> @endif
+                                                                        @if($fila['datos']['cargo']) <span>💼 Cargo: <span class="text-gray-700">{{ $fila['datos']['cargo'] }}</span></span> @endif
+                                                                        @if($fila['datos']['empresa_razon_social']) <span>🏢 Empresa: <span class="text-gray-700">{{ $fila['datos']['empresa_razon_social'] }}</span></span> @endif
+                                                                    </div>
+                                                                @endif
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+
+                                                    <div class="mt-3 flex justify-end gap-2">
+                                                        <button wire:click="$set('previewPdfs', [])"
+                                                                class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">Cancelar</button>
+                                                        <button wire:click="confirmarSubidaPdf"
+                                                                wire:loading.attr="disabled"
+                                                                wire:target="confirmarSubidaPdf"
+                                                                class="px-4 py-1.5 bg-purple-600 text-white rounded text-sm font-semibold hover:bg-purple-700 disabled:opacity-50">
+                                                            Confirmar y agregar al grupo
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            @endif
+                                        </div>
+                                    @endif
+                                </div>
+
+                                {{-- ── Sección 4: Seleccionar alumnos ya registrados ── --}}
                                 <div>
                                     <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Seleccionar alumnos de la empresa</p>
                                     @if($alumnos->isNotEmpty())

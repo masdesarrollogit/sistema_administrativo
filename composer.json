@@ -16,7 +16,8 @@
         "livewire/volt": "^1.7.0",
         "phpoffice/phpspreadsheet": "^5.4",
         "smalot/pdfparser": "^2.12",
-        "spatie/laravel-permission": "^6.24"
+        "spatie/laravel-permission": "^6.24",
+        "thiagoalessio/tesseract_ocr": "^2.13"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

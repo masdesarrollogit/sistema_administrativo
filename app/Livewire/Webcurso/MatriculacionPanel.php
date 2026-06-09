@@ -12,7 +12,9 @@ use App\Models\Tutor;
 use Carbon\Carbon;
 use App\Services\Webcurso\CsvImportService;
 use App\Services\Webcurso\FundaeXmlService;
+use App\Services\Webcurso\PdfFichaInscripcionParser;
 use App\Services\Webcurso\PdfNotificacionFundaeParser;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 
@@ -25,7 +27,12 @@ class MatriculacionPanel extends Component
     // ─── Gestión de alumnos ───
     public bool $mostrarFormAlumno = true;
     public bool $mostrarImportAlumnos = false;
+    public bool $mostrarSubidaPdf = false;
     public $archivoAlumnos;
+    /** @var array<int, \Livewire\Features\SupportFileUploads\TemporaryUploadedFile> */
+    public array $archivosPdf = [];
+    /** @var array<int, array<string, mixed>>  Cada entrada = un PDF parseado pendiente de confirmar */
+    public array $previewPdfs = [];
     public string $alumnoNombre = '';
     public string $alumnoApellido1 = '';
     public string $alumnoApellido2 = '';
@@ -134,11 +141,11 @@ class MatriculacionPanel extends Component
         Alumno::updateOrCreate(
             ['nif' => $this->alumnoNif, 'empresa_id' => $this->candidato->empresa_id],
             [
-                'nombre' => $this->alumnoNombre,
-                'apellido1' => $this->alumnoApellido1,
-                'apellido2' => $this->alumnoApellido2 ?: null,
-                'email' => $this->alumnoEmail ?: null,
-                'telefono' => $this->alumnoTelefono ?: null,
+                'nombre'    => $this->aTitleCase($this->alumnoNombre),
+                'apellido1' => $this->aTitleCase($this->alumnoApellido1),
+                'apellido2' => $this->alumnoApellido2 ? $this->aTitleCase($this->alumnoApellido2) : null,
+                'email'     => $this->alumnoEmail ? mb_strtolower(trim($this->alumnoEmail)) : null,
+                'telefono'  => $this->alumnoTelefono ?: null,
             ]
         );
 
@@ -238,6 +245,12 @@ class MatriculacionPanel extends Component
                 $apellido1 = $partes[0] ?? '';
                 $apellido2 = isset($partes[1]) && $partes[1] !== '' ? $partes[1] : null;
 
+                // Normalizar capitalización: nombres y apellidos a Title Case
+                // (Excel suele traerlos en MAYÚSCULAS).
+                $nombre    = $this->aTitleCase($nombre);
+                $apellido1 = $this->aTitleCase($apellido1);
+                $apellido2 = $apellido2 !== null ? $this->aTitleCase($apellido2) : null;
+
                 $email    = $colEmail    ? ($getCell($colEmail, $row)    ?: null) : null;
                 $telefono = $colTel      ? ($getCell($colTel, $row)      ?: null) : null;
                 $nacim    = $colNacim    ? ($getCell($colNacim, $row)    ?: null) : null;
@@ -287,8 +300,10 @@ class MatriculacionPanel extends Component
                     } catch (\Exception) {}
                 }
 
-                // Email: limpiar saltos de línea
-                if ($email) $email = trim(str_replace(["\n", "\r"], '', $email));
+                // Email: limpiar saltos de línea y normalizar a minúsculas
+                if ($email) {
+                    $email = mb_strtolower(trim(str_replace(["\n", "\r"], '', $email)));
+                }
 
                 // Validar email único (solo si hay email y no pertenece al mismo alumno por NIF)
                 if ($email && Alumno::where('email', $email)->where('nif', '!=', $nif)->exists()) {
@@ -359,6 +374,305 @@ class MatriculacionPanel extends Component
             $msg .= ' Errores: ' . implode('; ', array_slice($errores, 0, 3));
         }
         session()->flash('message-matricula', $msg);
+    }
+
+    // ═══════════════════════════════════════════════
+    //  SUBIDA DE FICHAS PDF (1 alumno por PDF, varios PDFs por subida)
+    // ═══════════════════════════════════════════════
+
+    public function toggleSubidaPdf(): void
+    {
+        $this->mostrarSubidaPdf = !$this->mostrarSubidaPdf;
+        if (!$this->mostrarSubidaPdf) {
+            $this->resetSubidaPdf();
+        }
+    }
+
+    public function procesarPdfs(): void
+    {
+        $this->validate([
+            'archivosPdf'   => 'required|array|max:20',
+            'archivosPdf.*' => 'file|mimes:pdf|mimetypes:application/pdf|max:10240',
+        ], [
+            'archivosPdf.required' => 'Selecciona al menos un PDF.',
+            'archivosPdf.max'      => 'Máximo 20 PDFs por subida.',
+            'archivosPdf.*.mimes'  => 'Solo se aceptan archivos PDF.',
+            'archivosPdf.*.max'    => 'Cada PDF puede pesar hasta 10 MB.',
+        ]);
+
+        if (!$this->candidato->empresa_id) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+            return;
+        }
+
+        $grupo = $this->grupoSeleccionadoId ? GrupoFormativo::find($this->grupoSeleccionadoId) : null;
+        $cifEmpresaGrupo = null;
+        if ($grupo && $grupo->empresa) {
+            $cifEmpresaGrupo = $this->normalizarCifSimple($grupo->empresa->cif);
+        }
+
+        $parser = new PdfFichaInscripcionParser();
+        $preview = [];
+        $nifsVistos = [];
+
+        foreach ($this->archivosPdf as $idx => $pdf) {
+            try {
+                $resultado = $parser->parsear($pdf->getRealPath());
+            } catch (\Throwable $e) {
+                $resultado = [
+                    'exito' => false, 'tipo' => 'ilegible',
+                    'datos' => [], 'inferidos' => [], 'faltantes' => [],
+                    'avisos' => ['Error al leer el PDF: ' . $e->getMessage()],
+                ];
+            }
+            unset($parser);
+            $parser = new PdfFichaInscripcionParser();
+
+            $datos = $resultado['datos'] ?? [];
+            $avisos = $resultado['avisos'] ?? [];
+            $estado = 'crear';
+            $diff = [];
+            $nif = $datos['nif'] ?? null;
+            $alumnoExistenteId = null;
+
+            // NIF duplicado en la misma subida → marcar y omitir
+            if ($nif && isset($nifsVistos[$nif])) {
+                $avisos[] = 'PDF duplicado: ya hay otra fila con el mismo NIF, esta se ignorará.';
+                $estado = 'duplicado';
+            } elseif ($nif) {
+                $nifsVistos[$nif] = true;
+                $existente = Alumno::where('nif', $nif)->first();
+                if ($existente) {
+                    $alumnoExistenteId = $existente->id;
+                    $estado = 'actualizar';
+                    foreach (['nombre', 'apellido1', 'apellido2', 'email', 'telefono', 'niss',
+                              'fecha_nacimiento', 'grupo_cotizacion_tgss', 'nivel_estudios',
+                              'categoria_profesional'] as $campo) {
+                        $nuevo = $datos[$campo] ?? null;
+                        $viejo = $existente->{$campo};
+                        if ($viejo instanceof \Carbon\Carbon) {
+                            $viejo = $viejo->format('Y-m-d');
+                        }
+                        if ($nuevo !== null && (string) $nuevo !== (string) $viejo) {
+                            $diff[$campo] = ['antes' => (string) ($viejo ?? ''), 'ahora' => (string) $nuevo];
+                        }
+                    }
+                }
+            }
+
+            // Validar CIF contra empresa del grupo
+            if ($cifEmpresaGrupo && !empty($datos['empresa_cif'])) {
+                $cifPdf = $this->normalizarCifSimple($datos['empresa_cif']);
+                if ($cifPdf && $cifPdf !== $cifEmpresaGrupo) {
+                    $avisos[] = "CIF del PDF ({$datos['empresa_cif']}) no coincide con la empresa del grupo ({$grupo->empresa->cif}).";
+                }
+            }
+
+            // Validar email duplicado en otro alumno
+            if (!empty($datos['email']) && $nif) {
+                $otro = Alumno::where('email', $datos['email'])->where('nif', '!=', $nif)->first();
+                if ($otro) {
+                    $avisos[] = "El email \"{$datos['email']}\" ya pertenece a otro alumno (NIF {$otro->nif}). Corrígelo antes de confirmar.";
+                    $datos['email'] = null;
+                }
+            }
+
+            $preview[] = [
+                'archivo_nombre'     => $pdf->getClientOriginalName(),
+                'archivo_temp_path'  => $pdf->getRealPath(),
+                'archivo_temp_name'  => method_exists($pdf, 'getFilename') ? $pdf->getFilename() : basename($pdf->getRealPath()),
+                'tipo'               => $resultado['tipo'] ?? 'ilegible',
+                'origen'             => $resultado['origen'] ?? 'ilegible',
+                'exito'              => $resultado['exito'] ?? false,
+                'estado'             => $estado,
+                'alumno_existente_id'=> $alumnoExistenteId,
+                'datos'              => $datos,
+                'inferidos'          => $resultado['inferidos'] ?? [],
+                'faltantes'          => $resultado['faltantes'] ?? [],
+                'avisos'             => $avisos,
+                'diff'               => $diff,
+            ];
+        }
+
+        $this->previewPdfs = $preview;
+        $this->archivosPdf = [];
+    }
+
+    public function quitarPdfPreview(int $index): void
+    {
+        if (isset($this->previewPdfs[$index])) {
+            unset($this->previewPdfs[$index]);
+            $this->previewPdfs = array_values($this->previewPdfs);
+        }
+    }
+
+    public function confirmarSubidaPdf(): void
+    {
+        if (empty($this->previewPdfs)) {
+            session()->flash('error-matricula', 'No hay PDFs para confirmar.');
+            return;
+        }
+        if (!$this->candidato->empresa_id) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+            return;
+        }
+
+        $grupo = $this->grupoSeleccionadoId
+            ? GrupoFormativo::with('alumnos', 'tutor')->find($this->grupoSeleccionadoId)
+            : null;
+
+        $creados = 0;
+        $actualizados = 0;
+        $agregadosAlGrupo = 0;
+        $errores = [];
+
+        foreach ($this->previewPdfs as $fila) {
+            if (($fila['estado'] ?? '') === 'duplicado') {
+                continue;
+            }
+
+            $datos = $fila['datos'] ?? [];
+
+            // Validaciones mínimas para poder guardar
+            $faltantes = [];
+            foreach (['nombre', 'apellido1', 'nif', 'email'] as $req) {
+                if (empty($datos[$req])) {
+                    $faltantes[] = $req;
+                }
+            }
+            if (!empty($faltantes)) {
+                $errores[] = "{$fila['archivo_nombre']}: faltan campos obligatorios (" . implode(', ', $faltantes) . ').';
+                continue;
+            }
+
+            // Verificación final de email único cruzado con BD
+            $emailConflict = Alumno::where('email', $datos['email'])
+                ->where('nif', '!=', $datos['nif'])->exists();
+            if ($emailConflict) {
+                $errores[] = "{$fila['archivo_nombre']}: el email ya pertenece a otro alumno.";
+                continue;
+            }
+
+            try {
+                $eraNuevo = !Alumno::where('nif', $datos['nif'])->exists();
+                $alumno = Alumno::updateOrCreate(
+                    ['nif' => $datos['nif']],
+                    array_filter([
+                        'empresa_id'            => $this->candidato->empresa_id,
+                        'nombre'                => $datos['nombre'],
+                        'apellido1'             => $datos['apellido1'],
+                        'apellido2'             => $datos['apellido2'] ?: null,
+                        'email'                 => $datos['email'],
+                        'telefono'              => $datos['telefono'] ?: null,
+                        'niss'                  => $datos['niss'] ?: null,
+                        'fecha_nacimiento'      => $datos['fecha_nacimiento'] ?: null,
+                        'sexo'                  => $datos['sexo'] ?: null,
+                        'grupo_cotizacion_tgss' => $datos['grupo_cotizacion_tgss'] ?? null,
+                        'nivel_estudios'        => $datos['nivel_estudios'] ?? null,
+                        'categoria_profesional' => $datos['categoria_profesional'] ?? null,
+                    ], fn ($v) => $v !== null && $v !== '')
+                );
+                if ($eraNuevo) {
+                    $creados++;
+                } else {
+                    $actualizados++;
+                }
+            } catch (\Throwable $e) {
+                $errores[] = "{$fila['archivo_nombre']}: {$e->getMessage()}";
+                continue;
+            }
+
+            // Mover el PDF al storage definitivo
+            $rutaFinal = null;
+            try {
+                $tempPath = $fila['archivo_temp_path'] ?? null;
+                if ($tempPath && is_file($tempPath) && $grupo) {
+                    $nombreLimpio = preg_replace('/[^A-Za-z0-9_\-]/', '', $datos['nif']);
+                    $rutaFinal = "fichas-inscripcion/{$grupo->id}/{$nombreLimpio}_" . time() . '.pdf';
+                    Storage::disk('local')->putFileAs(
+                        dirname($rutaFinal),
+                        $tempPath,
+                        basename($rutaFinal)
+                    );
+                }
+            } catch (\Throwable $e) {
+                $errores[] = "{$fila['archivo_nombre']}: no se pudo archivar el PDF ({$e->getMessage()}).";
+            }
+
+            // Asociar al grupo (si hay grupo seleccionado y está abierto)
+            if ($grupo && $grupo->estaAbierto()) {
+                if ($alumno->matriculasAutonomas()->exists()) {
+                    $errores[] = "{$fila['archivo_nombre']}: {$alumno->nombre_completo} es autónomo, no puede entrar en grupo FUNDAE.";
+                    continue;
+                }
+                if ($alumno->tieneGrupoActivoEnPeriodo($grupo->fecha_inicio, $grupo->fecha_fin, $grupo->id)) {
+                    $errores[] = "{$fila['archivo_nombre']}: {$alumno->nombre_completo} ya está en otro grupo con fechas que se solapan.";
+                    continue;
+                }
+                if (!$grupo->tutor->puedeAceptarEnTramo($grupo->tramo_horario, 1)) {
+                    $errores[] = "El tutor ya tiene 80 alumnos en el tramo {$grupo->tramo_horario}.";
+                    break;
+                }
+
+                $datosPivot = ['estado_moodle' => 'pendiente'];
+                if ($rutaFinal) {
+                    $datosPivot['ficha_inscripcion_path']        = $rutaFinal;
+                    $datosPivot['ficha_inscripcion_tipo']        = $fila['tipo'] === 'ilegible' ? 'manual' : ($fila['tipo'] ?? 'ficha');
+                    $datosPivot['ficha_inscripcion_subida_en']   = now();
+                }
+
+                $grupo->alumnos()->syncWithoutDetaching([$alumno->id => $datosPivot]);
+                $agregadosAlGrupo++;
+            }
+        }
+
+        if ($grupo && $agregadosAlGrupo > 0) {
+            $grupo->update(['descripcion' => $grupo->fresh()->descripcion_fundae]);
+        }
+
+        $this->resetSubidaPdf();
+
+        $msg = "{$creados} creado(s), {$actualizados} actualizado(s), {$agregadosAlGrupo} agregado(s) al grupo.";
+        if (!empty($errores)) {
+            $msg .= ' Errores: ' . implode('; ', array_slice($errores, 0, 5));
+            session()->flash('error-matricula', $msg);
+        } else {
+            session()->flash('message-matricula', $msg);
+        }
+    }
+
+    public function descargarFichaPdf(int $grupoId, int $alumnoId): mixed
+    {
+        $grupo = GrupoFormativo::where('id', $grupoId)
+            ->where('candidato_id', $this->candidato->id)
+            ->firstOrFail();
+
+        $pivot = $grupo->alumnos()->where('alumno_id', $alumnoId)->first()?->pivot;
+        if (!$pivot || !$pivot->ficha_inscripcion_path) {
+            session()->flash('error-matricula', 'Este alumno no tiene ficha PDF archivada.');
+            return null;
+        }
+
+        if (!Storage::disk('local')->exists($pivot->ficha_inscripcion_path)) {
+            session()->flash('error-matricula', 'El archivo PDF no existe en disco.');
+            return null;
+        }
+
+        return Storage::disk('local')->download($pivot->ficha_inscripcion_path);
+    }
+
+    protected function resetSubidaPdf(): void
+    {
+        $this->archivosPdf = [];
+        $this->previewPdfs = [];
+        $this->resetValidation(['archivosPdf', 'previewPdfs']);
+    }
+
+    private function normalizarCifSimple(?string $cif): ?string
+    {
+        if (!$cif) return null;
+        $n = strtoupper(preg_replace('/[\s\-\.]+/', '', trim($cif)));
+        return $n ?: null;
     }
 
     // ═══════════════════════════════════════════════
@@ -492,7 +806,9 @@ class MatriculacionPanel extends Component
         $this->alumnosParaAgregar = [];
         $this->mostrarFormAlumno = true;
         $this->mostrarImportAlumnos = false;
+        $this->mostrarSubidaPdf = false;
         $this->archivoAlumnos = null;
+        $this->resetSubidaPdf();
     }
 
     public function deseleccionarGrupo(): void
@@ -501,7 +817,9 @@ class MatriculacionPanel extends Component
         $this->alumnosParaAgregar = [];
         $this->mostrarFormAlumno = true;
         $this->mostrarImportAlumnos = false;
+        $this->mostrarSubidaPdf = false;
         $this->archivoAlumnos = null;
+        $this->resetSubidaPdf();
     }
 
     public function toggleAlumnoEnGrupo(int $grupoId, int $alumnoId): void
@@ -935,11 +1253,11 @@ class MatriculacionPanel extends Component
         ]);
 
         Alumno::where('id', $this->editandoAlumnoId)->update([
-            'nombre'    => $this->editAlumnoNombre,
-            'apellido1' => $this->editAlumnoApellido1,
-            'apellido2' => $this->editAlumnoApellido2 ?: null,
+            'nombre'    => $this->aTitleCase($this->editAlumnoNombre),
+            'apellido1' => $this->aTitleCase($this->editAlumnoApellido1),
+            'apellido2' => $this->editAlumnoApellido2 ? $this->aTitleCase($this->editAlumnoApellido2) : null,
             'nif'       => $this->editAlumnoNif,
-            'email'     => $this->editAlumnoEmail,
+            'email'     => mb_strtolower(trim($this->editAlumnoEmail)),
             'telefono'  => $this->editAlumnoTelefono ?: null,
         ]);
 
@@ -1048,11 +1366,11 @@ class MatriculacionPanel extends Component
         if ($this->autonomoNuevoAlumno) {
             $alumno = Alumno::create([
                 'empresa_id' => $this->candidato->empresa_id,
-                'nombre'     => $this->autonomoNombre,
-                'apellido1'  => $this->autonomoApellido1,
-                'apellido2'  => $this->autonomoApellido2 ?: null,
+                'nombre'     => $this->aTitleCase($this->autonomoNombre),
+                'apellido1'  => $this->aTitleCase($this->autonomoApellido1),
+                'apellido2'  => $this->autonomoApellido2 ? $this->aTitleCase($this->autonomoApellido2) : null,
                 'nif'        => $this->autonomoNif,
-                'email'      => $this->autonomoEmail,
+                'email'      => mb_strtolower(trim($this->autonomoEmail)),
                 'telefono'   => $this->autonomoTelefono ?: null,
             ]);
             $alumnoId = $alumno->id;
@@ -1210,5 +1528,24 @@ class MatriculacionPanel extends Component
             'alumnosParaAutonomo'  => $alumnosParaAutonomo,
             'matriculasAutonomas'  => $matriculasAutonomas,
         ]);
+    }
+
+    /**
+     * Title Case unicode-safe: convierte "GREICY LISBETH" → "Greicy Lisbeth".
+     * Primera letra de cada palabra en mayúscula, resto en minúscula. Maneja
+     * separadores espacio, guion y apóstrofo.
+     */
+    private function aTitleCase(?string $texto): string
+    {
+        if ($texto === null) return '';
+        $texto = trim($texto);
+        if ($texto === '') return '';
+
+        $lower = mb_strtolower($texto, 'UTF-8');
+        return preg_replace_callback(
+            '/(?<=^|[\s\-\'\.])(\p{L})/u',
+            fn ($m) => mb_strtoupper($m[1], 'UTF-8'),
+            $lower
+        );
     }
 }
