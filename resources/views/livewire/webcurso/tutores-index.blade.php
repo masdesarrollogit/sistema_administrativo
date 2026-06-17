@@ -87,12 +87,12 @@
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-700">
                                 @php
-                                    $t1 = $tutor->alumnosEnTramo('tramo_1');
-                                    $t2 = $tutor->alumnosEnTramo('tramo_2');
+                                    $t1 = $tutor->cargaHoyEnTramo('tramo_1');
+                                    $t2 = $tutor->cargaHoyEnTramo('tramo_2');
                                 @endphp
-                                <span class="{{ $t1 >= 70 ? 'text-red-600 font-semibold' : '' }}">{{ $t1 }}/80</span>
+                                <span title="Alumnos simultáneos hoy en T1 (mañana)" class="{{ $t1 >= 70 ? 'text-red-600 font-semibold' : '' }}">{{ $t1 }}/80</span>
                                 <span class="text-gray-400 mx-1">|</span>
-                                <span class="{{ $t2 >= 70 ? 'text-red-600 font-semibold' : '' }}">{{ $t2 }}/80</span>
+                                <span title="Alumnos simultáneos hoy en T2 (tarde)" class="{{ $t2 >= 70 ? 'text-red-600 font-semibold' : '' }}">{{ $t2 }}/80</span>
                             </td>
                             <td class="px-6 py-4">
                                 <button wire:click="toggleActivo({{ $tutor->id }})"

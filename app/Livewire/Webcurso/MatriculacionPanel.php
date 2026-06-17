@@ -609,8 +609,8 @@ class MatriculacionPanel extends Component
                     $errores[] = "{$fila['archivo_nombre']}: {$alumno->nombre_completo} ya está en otro grupo con fechas que se solapan.";
                     continue;
                 }
-                if (!$grupo->tutor->puedeAceptarEnTramo($grupo->tramo_horario, 1)) {
-                    $errores[] = "El tutor ya tiene 80 alumnos en el tramo {$grupo->tramo_horario}.";
+                if (!$grupo->tutor->puedeAceptarEnTramo($grupo->tramo_horario, 1, $grupo->fecha_inicio, $grupo->fecha_fin)) {
+                    $errores[] = "El tutor ya tiene 80 alumnos simultáneos en el tramo {$grupo->tramo_horario}.";
                     break;
                 }
 
@@ -758,8 +758,8 @@ class MatriculacionPanel extends Component
         ]);
 
         $tutor = Tutor::findOrFail($this->nuevoTutorId);
-        if (!$tutor->puedeAceptarEnTramo($this->nuevoTramo)) {
-            session()->flash('error-matricula', "El tutor {$tutor->nombre_completo} ya tiene 80 alumnos en {$this->nuevoTramo}.");
+        if (!$tutor->puedeAceptarEnTramo($this->nuevoTramo, 1, $this->nuevaFechaInicio, $this->nuevaFechaFin)) {
+            session()->flash('error-matricula', "El tutor {$tutor->nombre_completo} ya tiene 80 alumnos simultáneos en {$this->nuevoTramo} para esas fechas.");
             return;
         }
 
@@ -845,8 +845,9 @@ class MatriculacionPanel extends Component
             }
 
             $tutor = $grupo->tutor;
-            if (!$tutor->puedeAceptarEnTramo($grupo->tramo_horario, 1)) {
-                session()->flash('error-matricula', "El tutor ya tiene 80 alumnos en {$grupo->tramo_horario}.");
+            // No se excluye el grupo actual: sus alumnos ya asignados forman parte de la carga base.
+            if (!$tutor->puedeAceptarEnTramo($grupo->tramo_horario, 1, $grupo->fecha_inicio, $grupo->fecha_fin)) {
+                session()->flash('error-matricula', "El tutor ya tiene 80 alumnos simultáneos en {$grupo->tramo_horario}.");
                 return;
             }
 
@@ -873,8 +874,8 @@ class MatriculacionPanel extends Component
         }
 
         $tutor = $grupo->tutor;
-        if (!$tutor->puedeAceptarEnTramo($grupo->tramo_horario, count($ids))) {
-            session()->flash('error-matricula', "El tutor superaría los 80 alumnos en este tramo.");
+        if (!$tutor->puedeAceptarEnTramo($grupo->tramo_horario, count($ids), $grupo->fecha_inicio, $grupo->fecha_fin)) {
+            session()->flash('error-matricula', "El tutor superaría los 80 alumnos simultáneos en este tramo.");
             return;
         }
 

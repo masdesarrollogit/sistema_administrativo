@@ -184,16 +184,40 @@ class GrupoFormativo extends Model
     }
 
     /**
-     * Contar alumnos activos de un tutor en un tramo determinado (para límite de 80).
+     * Contar alumnos de un tutor en un tramo que coinciden EN EL TIEMPO con un período dado
+     * (para el límite FUNDAE de 80 alumnos SIMULTÁNEOS por tutor por tramo).
+     *
+     * Si se pasan fechas, solo cuentan los grupos cuyo rango se solapa con [fechaInicio, fechaFin]
+     * (mismo criterio que Alumno::tieneGrupoActivoEnPeriodo). Así, al pasar la fecha_fin de un
+     * grupo este deja de contar automáticamente y se libera el cupo del tramo.
+     *
+     * Un grupo que solapa parcialmente la ventana se cuenta entero (aproximación conservadora:
+     * errar hacia "no exceder" es lo correcto para FUNDAE).
+     *
+     * Sin fechas, cuenta todos los grupos activos del tramo (comportamiento de respaldo).
      */
-    public static function alumnosPorTutorYTramo(int $tutorId, string $tramo): int
-    {
-        return self::where('tutor_id', $tutorId)
+    public static function alumnosPorTutorYTramo(
+        int $tutorId,
+        string $tramo,
+        string|\Carbon\Carbon|null $fechaInicio = null,
+        string|\Carbon\Carbon|null $fechaFin = null,
+        ?int $excluirGrupoId = null
+    ): int {
+        $query = self::where('tutor_id', $tutorId)
             ->where('tramo_horario', $tramo)
-            ->whereIn('estado', ['abierto', 'comunicado', 'en_curso'])
-            ->withCount('alumnos')
-            ->get()
-            ->sum('alumnos_count');
+            ->whereIn('estado', ['abierto', 'comunicado', 'en_curso']);
+
+        if ($excluirGrupoId) {
+            $query->where('id', '!=', $excluirGrupoId);
+        }
+
+        if ($fechaInicio && $fechaFin) {
+            // Solapamiento: los rangos se cruzan si inicio_A <= fin_B Y fin_A >= inicio_B.
+            $query->where('fecha_inicio', '<=', $fechaFin)
+                  ->where('fecha_fin', '>=', $fechaInicio);
+        }
+
+        return $query->withCount('alumnos')->get()->sum('alumnos_count');
     }
 
     /**
