@@ -447,4 +447,111 @@ trait LegacyMappings
 
         return null;
     }
+
+    // ──────────────────────────────────────────────────────────────
+    //  Mapeos del sistema externo de Encomienda (contrato-encomienda.php)
+    //  El formulario usa letras para estudios (A..J) y números romanos
+    //  para grupo profesional (I..V). Grupo cotización ya viene numérico.
+    // ──────────────────────────────────────────────────────────────
+
+    /**
+     * Nivel de estudios letra → código FUNDAE 1-10. Secuencial: A=1 … J=10.
+     */
+    protected function mapearNivelEstudiosEncomiendaLetra(?string $letra): ?int
+    {
+        if (!$letra) {
+            return null;
+        }
+
+        $c = strtoupper(trim($letra));
+        if (!preg_match('/^[A-J]$/', $c)) {
+            return null;
+        }
+
+        return ord($c) - 64; // 'A' (65) → 1 … 'J' (74) → 10
+    }
+
+    /**
+     * Grupo profesional número romano → categoría profesional 1-5.
+     * I=1 (Directivo) … V=5 (Baja cualificación).
+     */
+    protected function mapearCategoriaProfesionalEncomiendaRomano(?string $romano): ?int
+    {
+        if (!$romano) {
+            return null;
+        }
+
+        return match (strtoupper(trim($romano))) {
+            'I'   => 1,
+            'II'  => 2,
+            'III' => 3,
+            'IV'  => 4,
+            'V'   => 5,
+            default => null,
+        };
+    }
+
+    /**
+     * Grupo cotización externo (ya numérico, ej. '01', '07') → código TGSS 1-11.
+     * Quita el cero inicial y valida el rango.
+     */
+    protected function mapearGrupoCotizacionEncomienda(?string $valor): ?string
+    {
+        if ($valor === null || trim($valor) === '') {
+            return null;
+        }
+
+        if (!preg_match('/(\d{1,2})/', $valor, $m)) {
+            return null;
+        }
+
+        $n = (int) $m[1];
+        return ($n >= 1 && $n <= 11) ? (string) $n : null;
+    }
+
+    /**
+     * Parsea fechas del sistema externo en formatos sucios y devuelve Y-m-d.
+     * Acepta dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy y variantes sin separador o con
+     * dígitos faltantes (ej. '21011981', '2101981'). Devuelve null si no es fiable.
+     */
+    protected function normalizarFechaEncomienda(?string $valor): ?string
+    {
+        if ($valor === null) {
+            return null;
+        }
+
+        $v = trim($valor);
+        if ($v === '') {
+            return null;
+        }
+
+        // Con separadores: dd[/-.]mm[/-.]yyyy
+        if (preg_match('#^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$#', $v, $m)) {
+            [$d, $mo, $y] = [(int) $m[1], (int) $m[2], (int) $m[3]];
+            if ($y < 100) {
+                $y += ($y <= 30 ? 2000 : 1900);
+            }
+            return $this->fechaValidaONull($y, $mo, $d);
+        }
+
+        // Solo dígitos, 8 (ddmmyyyy). '2101981' (7 díg) es ambiguo → descartar.
+        $soloDigitos = preg_replace('/\D/', '', $v);
+        if (strlen($soloDigitos) === 8) {
+            $d  = (int) substr($soloDigitos, 0, 2);
+            $mo = (int) substr($soloDigitos, 2, 2);
+            $y  = (int) substr($soloDigitos, 4, 4);
+            return $this->fechaValidaONull($y, $mo, $d);
+        }
+
+        return null;
+    }
+
+    private function fechaValidaONull(int $y, int $m, int $d): ?string
+    {
+        if ($y < 1900 || $y > 2100 || !checkdate($m, $d, $y)) {
+            return null;
+        }
+
+        return sprintf('%04d-%02d-%02d', $y, $m, $d);
+    }
 }

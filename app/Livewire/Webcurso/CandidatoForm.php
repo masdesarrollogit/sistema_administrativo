@@ -26,6 +26,7 @@ class CandidatoForm extends Component
     public $buscar_empresa = true;
     public $empresaResults = [];
     public $showEmpresaDropdown = false;
+    public ?bool $empresaEncontrada = null; // null=sin buscar, true=existe, false=no existe
 
     public function updatedRazonSocialEmpresa($value)
     {
@@ -94,42 +95,63 @@ class CandidatoForm extends Component
             if ($candidato->empresa) {
                 $this->cif_empresa = $candidato->empresa->cif;
                 $this->razon_social_empresa = $candidato->empresa->razon_social;
+                $this->empresaEncontrada = true;
             } elseif ($candidato->empresaExterna) {
                 $this->cif_empresa = $candidato->empresaExterna->cif;
                 $this->razon_social_empresa = $candidato->empresaExterna->razon_social;
+                $this->empresaEncontrada = true;
             }
         }
     }
 
-    public function buscarEmpresaPorCif()
+    /**
+     * Búsqueda en vivo al escribir el CIF: rellena la razón social si la empresa
+     * existe. Si no existe, deja la razón social vacía y marca el aviso.
+     * NUNCA crea la empresa.
+     */
+    public function updatedCifEmpresa($value): void
     {
-        if (!$this->cif_empresa) {
-            return;
-        }
+        $this->buscarEmpresaPorCif();
+    }
 
+    public function buscarEmpresaPorCif(): void
+    {
         $tipoCandidato = TipoCandidato::find($this->tipo_candidato_id);
-        
-        if (!$tipoCandidato) {
+        if (!$tipoCandidato || !in_array($tipoCandidato->codigo, ['empresa_organizadora', 'empresa_externa'])) {
             return;
         }
 
-        if ($tipoCandidato->codigo === 'empresa_organizadora') {
-            $empresa = Empresa::where('cif', $this->cif_empresa)->first();
-            if ($empresa) {
-                $this->razon_social_empresa = $empresa->razon_social;
-                session()->flash('message', 'Empresa encontrada en el sistema');
-            } else {
-                session()->flash('warning', 'Empresa no encontrada. Se creará una nueva.');
-            }
-        } elseif ($tipoCandidato->codigo === 'empresa_externa') {
-            $empresaExterna = EmpresaExterna::where('cif', $this->cif_empresa)->first();
-            if ($empresaExterna) {
-                $this->razon_social_empresa = $empresaExterna->razon_social;
-                session()->flash('message', 'Empresa externa encontrada');
-            } else {
-                session()->flash('warning', 'Empresa externa no encontrada. Se creará una nueva.');
-            }
+        if (!trim((string) $this->cif_empresa)) {
+            $this->empresaEncontrada = null;
+            $this->razon_social_empresa = '';
+            return;
         }
+
+        $empresa = $this->buscarEmpresaModelo($tipoCandidato->codigo, $this->cif_empresa);
+
+        if ($empresa) {
+            $this->razon_social_empresa = $empresa->razon_social;
+            $this->empresaEncontrada = true;
+            $this->resetErrorBag('cif_empresa');
+        } else {
+            $this->razon_social_empresa = '';
+            $this->empresaEncontrada = false;
+        }
+    }
+
+    /** Busca la empresa por CIF normalizado (mayúsculas, sin espacios/guiones/puntos). NO crea. */
+    private function buscarEmpresaModelo(string $codigo, ?string $cif)
+    {
+        $cifNorm = strtoupper(preg_replace('/[\s\-\.]+/', '', trim((string) $cif)));
+        if ($cifNorm === '') {
+            return null;
+        }
+
+        $query = $codigo === 'empresa_organizadora' ? Empresa::query() : EmpresaExterna::query();
+
+        return $query
+            ->whereRaw("UPPER(REPLACE(REPLACE(REPLACE(cif, '-', ''), ' ', ''), '.', '')) = ?", [$cifNorm])
+            ->first();
     }
 
     public function save()
@@ -156,28 +178,30 @@ class CandidatoForm extends Component
             $empresaId = null;
             $empresaExternaId = null;
 
-            // Gestionar empresa según el tipo
-            if ($tipoCandidato->codigo === 'empresa_organizadora' && $this->cif_empresa) {
-                $empresa = Empresa::firstOrCreate(
-                    ['cif' => $this->cif_empresa],
-                    [
-                        'razon_social' => $this->razon_social_empresa,
-                        'email' => $this->email,
-                        'telefono' => $this->telefono,
-                    ]
-                );
-                $empresaId = $empresa->id;
-            } elseif ($tipoCandidato->codigo === 'empresa_externa' && $this->cif_empresa) {
-                $empresaExterna = EmpresaExterna::firstOrCreate(
-                    ['cif' => $this->cif_empresa],
-                    [
-                        'razon_social' => $this->razon_social_empresa,
-                        'email' => $this->email,
-                        'telefono' => $this->telefono,
-                        'contacto_nombre' => $this->nombre_contacto,
-                    ]
-                );
-                $empresaExternaId = $empresaExterna->id;
+            // La empresa DEBE existir previamente. NUNCA se crea desde aquí.
+            // Si el CIF no corresponde a una empresa registrada, no se crea el candidato.
+            if (in_array($tipoCandidato->codigo, ['empresa_organizadora', 'empresa_externa'])) {
+                if (!trim((string) $this->cif_empresa)) {
+                    $this->addError('cif_empresa', 'El CIF es obligatorio.');
+                    return;
+                }
+
+                $empresaEncontrada = $this->buscarEmpresaModelo($tipoCandidato->codigo, $this->cif_empresa);
+
+                if (!$empresaEncontrada) {
+                    $this->empresaEncontrada = false;
+                    $this->addError('cif_empresa', 'No existe ninguna empresa registrada con ese CIF. Regístrala primero — el candidato no se creará.');
+                    return;
+                }
+
+                // Sincroniza la razón social mostrada con la de la empresa real
+                $this->razon_social_empresa = $empresaEncontrada->razon_social;
+
+                if ($tipoCandidato->codigo === 'empresa_organizadora') {
+                    $empresaId = $empresaEncontrada->id;
+                } else {
+                    $empresaExternaId = $empresaEncontrada->id;
+                }
             }
 
             $data = [

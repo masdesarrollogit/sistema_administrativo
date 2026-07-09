@@ -5,6 +5,7 @@ namespace App\Livewire\Webcurso;
 use App\Models\AccionFormativa;
 use App\Models\Alumno;
 use App\Models\Candidato;
+use App\Models\EncomiendaAlumnoStaging;
 use App\Models\Grupo;
 use App\Models\GrupoFormativo;
 use App\Models\MatriculaAutonoma;
@@ -14,6 +15,7 @@ use App\Services\Webcurso\CsvImportService;
 use App\Services\Webcurso\FundaeXmlService;
 use App\Services\Webcurso\PdfFichaInscripcionParser;
 use App\Services\Webcurso\PdfNotificacionFundaeParser;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -928,6 +930,135 @@ class MatriculacionPanel extends Component
         $grupo->update(['descripcion' => $grupo->fresh()->descripcion_fundae]);
     }
 
+    /**
+     * Materializa un alumno de la tabla staging de encomienda: crea/actualiza el
+     * Alumno real, lo añade al grupo (con las mismas validaciones que fidelizados)
+     * y enlaza el PDF del contrato firmado si el endpoint está configurado.
+     */
+    public function materializarAlumnoEncomienda(int $grupoId, int $stagingId): void
+    {
+        $staging = EncomiendaAlumnoStaging::with('contrato')->find($stagingId);
+        if (!$staging || $staging->estado !== 'pendiente') {
+            session()->flash('error-matricula', 'Ese alumno de encomienda ya no está disponible.');
+            return;
+        }
+
+        $grupo = GrupoFormativo::where('id', $grupoId)
+            ->where('candidato_id', $this->candidato->id)
+            ->first();
+        if (!$grupo) {
+            session()->flash('error-matricula', 'Grupo no válido.');
+            return;
+        }
+        if (!$grupo->estaAbierto()) {
+            session()->flash('error-matricula', 'El grupo ya no está abierto (menos de 2 días para el inicio).');
+            return;
+        }
+
+        $empresaId = $this->candidato->empresa_id;
+        if (!$empresaId) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+            return;
+        }
+
+        $nif = $staging->nif;
+        if (!$nif) {
+            session()->flash('error-matricula', 'El alumno de encomienda no tiene NIF; complétalo antes de añadirlo.');
+            return;
+        }
+
+        // Email único global: si ya lo usa OTRO alumno, no lo reasignamos (admin lo corrige)
+        $email = $staging->email;
+        if ($email) {
+            $ocupadoPorOtro = Alumno::where('email', $email)
+                ->where(fn ($q) => $q->where('nif', '!=', $nif)->orWhere('empresa_id', '!=', $empresaId))
+                ->exists();
+            if ($ocupadoPorOtro) {
+                $email = null;
+            }
+        }
+
+        $datos = $staging->datosParaAlumno($empresaId);
+        $datos['email'] = $email;
+
+        $alumno = Alumno::updateOrCreate(['nif' => $nif, 'empresa_id' => $empresaId], $datos);
+
+        // Validaciones de negocio (idénticas a agregarAlumnosAlGrupo / fidelizados)
+        if ($alumno->matriculasAutonomas()->exists()) {
+            session()->flash('error-matricula', "{$alumno->nombre_completo} es autónomo, no puede entrar en grupo FUNDAE.");
+            return;
+        }
+        if ($alumno->tieneGrupoActivoEnPeriodo($grupo->fecha_inicio, $grupo->fecha_fin, $grupo->id)) {
+            session()->flash('error-matricula', "{$alumno->nombre_completo} ya está en otro grupo con fechas que se solapan.");
+            return;
+        }
+        if (!$grupo->tutor->puedeAceptarEnTramo($grupo->tramo_horario, 1, $grupo->fecha_inicio, $grupo->fecha_fin)) {
+            session()->flash('error-matricula', "El tutor ya tiene 80 alumnos simultáneos en {$grupo->tramo_horario}.");
+            return;
+        }
+
+        // Enlazar el PDF del contrato firmado (si el endpoint está configurado)
+        $datosPivot = ['estado_moodle' => 'pendiente'];
+        $rutaPdf = $this->descargarPdfEncomienda($staging->contrato, $grupo, $nif);
+        if ($rutaPdf) {
+            $datosPivot['ficha_inscripcion_path']      = $rutaPdf;
+            $datosPivot['ficha_inscripcion_tipo']      = 'encomienda';
+            $datosPivot['ficha_inscripcion_subida_en'] = now();
+        }
+
+        $grupo->alumnos()->syncWithoutDetaching([$alumno->id => $datosPivot]);
+        $grupo->update(['descripcion' => $grupo->fresh()->descripcion_fundae]);
+
+        $staging->update(['estado' => 'materializado', 'alumno_id' => $alumno->id]);
+
+        $aviso = $rutaPdf ? '' : ' (sin PDF automático; súbelo manualmente si aplica)';
+        session()->flash('message-matricula', "{$alumno->nombre_completo} añadido al grupo desde encomienda{$aviso}.");
+    }
+
+    /**
+     * Descarga el PDF del contrato firmado desde el endpoint externo con token y
+     * lo archiva en storage. Devuelve la ruta relativa o null si no está
+     * configurado / falla (el flujo cae a subida manual).
+     */
+    private function descargarPdfEncomienda(?object $contrato, GrupoFormativo $grupo, string $nif): ?string
+    {
+        $baseUrl = config('encomienda.pdf.base_url');
+        $token   = config('encomienda.pdf.token');
+        $ref     = $contrato?->referencia_aceptacion;
+
+        if (!$baseUrl || !$token || !$ref) {
+            return null;
+        }
+
+        try {
+            $resp = Http::timeout((int) config('encomienda.pdf.timeout', 20))
+                ->get($baseUrl, ['ref' => $ref, 'token' => $token]);
+
+            if (!$resp->successful()) {
+                return null;
+            }
+
+            $contenido = $resp->body();
+            if (strncmp($contenido, '%PDF', 4) !== 0) {
+                return null; // no es un PDF válido
+            }
+
+            // Verificación opcional de integridad; el desfase de sync no bloquea
+            if ($contrato->pdf_hash && hash('sha256', $contenido) !== $contrato->pdf_hash) {
+                \Log::info("PDF encomienda {$ref}: hash no coincide con el mirror (posible ratificación/desfase).");
+            }
+
+            $nombreLimpio = preg_replace('/[^A-Za-z0-9_\-]/', '', $nif);
+            $ruta = "fichas-inscripcion/{$grupo->id}/{$nombreLimpio}_" . time() . '.pdf';
+            Storage::disk('local')->put($ruta, $contenido);
+
+            return $ruta;
+        } catch (\Throwable $e) {
+            \Log::warning('Descarga PDF encomienda falló: ' . $e->getMessage());
+            return null;
+        }
+    }
+
     // ═══════════════════════════════════════════════
     //  ACCIONES SOBRE GRUPOS
     // ═══════════════════════════════════════════════
@@ -1519,6 +1650,16 @@ class MatriculacionPanel extends Component
             ->orderByDesc('created_at')
             ->get();
 
+        // Alumnos en staging de encomienda pendientes, para la empresa de este candidato
+        $alumnosEncomienda = collect();
+        if ($this->candidato->empresa_id) {
+            $alumnosEncomienda = EncomiendaAlumnoStaging::where('estado', 'pendiente')
+                ->whereHas('contrato', fn ($q) => $q->where('empresa_id', $this->candidato->empresa_id))
+                ->with('contrato')
+                ->orderBy('apellido1')
+                ->get();
+        }
+
         return view('livewire.webcurso.matriculacion-panel', [
             'alumnos'              => $alumnos,
             'grupos'               => $grupos,
@@ -1528,6 +1669,7 @@ class MatriculacionPanel extends Component
             'gruposEnFundae'       => $gruposEnFundae,
             'alumnosParaAutonomo'  => $alumnosParaAutonomo,
             'matriculasAutonomas'  => $matriculasAutonomas,
+            'alumnosEncomienda'    => $alumnosEncomienda,
         ]);
     }
 
