@@ -793,6 +793,62 @@
                                     @endif
                                 </div>
 
+                                {{-- ── Sección 5: Alumnos desde encomienda (sistema externo) ── --}}
+                                @if($alumnosEncomienda->isNotEmpty())
+                                    <div>
+                                        <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                                            <span class="inline-flex items-center gap-1">
+                                                <span class="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold">ENCOMIENDA</span>
+                                                Alumnos del contrato firmado online
+                                            </span>
+                                        </p>
+                                        <div class="bg-white rounded-lg border border-indigo-200 overflow-hidden">
+                                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                                <thead class="bg-indigo-50">
+                                                    <tr>
+                                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Alumno</th>
+                                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">NIF</th>
+                                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Curso de interés</th>
+                                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Contrato</th>
+                                                        <th class="px-3 py-2 w-24"></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-100">
+                                                    @foreach($alumnosEncomienda as $stg)
+                                                        @php
+                                                            $solapa = $stg->nif
+                                                                ? \App\Models\Alumno::where('nif', $stg->nif)->where('empresa_id', $candidato->empresa_id)->first()?->tieneGrupoActivoEnPeriodo($grupo->fecha_inicio, $grupo->fecha_fin, $grupo->id)
+                                                                : false;
+                                                        @endphp
+                                                        <tr class="hover:bg-indigo-50/40">
+                                                            <td class="px-3 py-2 font-medium text-gray-900">{{ $stg->nombre_completo }}</td>
+                                                            <td class="px-3 py-2 text-gray-600">{{ $stg->nif ?? '—' }}</td>
+                                                            <td class="px-3 py-2 text-gray-500 text-xs">
+                                                                {{ $stg->curso_interes ?? '—' }}
+                                                                @if($stg->horas)<span class="text-gray-400">· {{ $stg->horas }}h</span>@endif
+                                                            </td>
+                                                            <td class="px-3 py-2 text-gray-400 text-[11px] font-mono">{{ $stg->contrato?->referencia_aceptacion ?? '—' }}</td>
+                                                            <td class="px-3 py-2 text-right">
+                                                                @if($solapa)
+                                                                    <span class="text-xs text-amber-600">En otro grupo activo</span>
+                                                                @else
+                                                                    <button type="button"
+                                                                        wire:click="materializarAlumnoEncomienda({{ $grupo->id }}, {{ $stg->id }})"
+                                                                        wire:loading.attr="disabled"
+                                                                        class="px-2.5 py-1 rounded bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">
+                                                                        + Añadir
+                                                                    </button>
+                                                                @endif
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <p class="text-[11px] text-gray-400 mt-1">Al añadir, se crea el alumno y se enlaza automáticamente el PDF del contrato firmado (si está disponible).</p>
+                                    </div>
+                                @endif
+
                                 {{-- Aviso si el grupo cierra pronto --}}
                                 @if(!$grupo->estaAbierto())
                                     <div class="p-2 bg-amber-50 border border-amber-300 rounded text-xs text-amber-800">

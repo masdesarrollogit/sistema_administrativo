@@ -117,3 +117,12 @@ if (config('candidatos.email_saldo_bonificados.activo', true)) {
         default => $cmdBonificados->monthlyOn($diaBonificados, $horaBonificados),
     };
 }
+
+// Sincronización de contratos de encomienda del sistema externo (cada 30 min)
+Schedule::command('encomienda:sincronizar')
+    ->everyThirtyMinutes()
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar el cron de sincronización de encomienda');
+    });

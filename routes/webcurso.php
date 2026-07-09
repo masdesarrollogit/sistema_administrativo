@@ -14,6 +14,7 @@ use App\Livewire\Webcurso\TutoresIndex;
 use App\Livewire\Webcurso\AccionesFormativasIndex;
 use App\Livewire\Webcurso\AlumnosIndex;
 use App\Livewire\Webcurso\ReportesMoodleIndex;
+use App\Livewire\Webcurso\EncomiendaContratosIndex;
 use App\Livewire\Zoho\BooksIndex;
 use App\Http\Controllers\ZohoController;
 
@@ -62,6 +63,9 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
 
         // Acciones Formativas FUNDAE
         Route::get('/acciones-formativas', AccionesFormativasIndex::class)->name('acciones-formativas');
+
+        // Contratos de Encomienda (sistema externo)
+        Route::get('/encomienda', EncomiendaContratosIndex::class)->name('encomienda');
 
         // Gestión de candidatos
         Route::prefix('candidatos')->name('candidatos.')->group(function () {
