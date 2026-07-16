@@ -3,6 +3,7 @@
 namespace App\Livewire\Webcurso;
 
 use App\Services\Webcurso\CsvImportService;
+use App\Services\Webcurso\EncuestaCalidadService;
 use Illuminate\Support\Facades\Artisan;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -15,6 +16,7 @@ class ImportarCsv extends Component
     public $archivoGrupos;
     public $archivoParticipantes;
     public $archivoAccionesFormativas;
+    public $archivoEncuesta;
     public bool $esAnterior = false;
     public array $logs = [];
     public bool $procesando = false;
@@ -26,6 +28,7 @@ class ImportarCsv extends Component
         'archivoGrupos'              => 'nullable|file|mimes:csv,txt,xls,xlsx|max:20480',
         'archivoParticipantes'       => 'nullable|file|mimes:xls,xlsx|max:20480',
         'archivoAccionesFormativas'  => 'nullable|file|mimes:xls,xlsx|max:20480',
+        'archivoEncuesta'            => 'nullable|file|mimes:csv,txt,xls,xlsx|max:20480',
     ];
 
     public function updatedArchivoEmpresas(): void
@@ -48,11 +51,16 @@ class ImportarCsv extends Component
         $this->validateOnly('archivoAccionesFormativas');
     }
 
+    public function updatedArchivoEncuesta(): void
+    {
+        $this->validateOnly('archivoEncuesta');
+    }
+
     public function procesar(): void
     {
         $this->validate();
 
-        if (!$this->archivoEmpresas && !$this->archivoGrupos && !$this->archivoParticipantes && !$this->archivoAccionesFormativas) {
+        if (!$this->archivoEmpresas && !$this->archivoGrupos && !$this->archivoParticipantes && !$this->archivoAccionesFormativas && !$this->archivoEncuesta) {
             $this->addError('general', 'Debes subir al menos un archivo');
             return;
         }
@@ -109,6 +117,14 @@ class ImportarCsv extends Component
             $totalErrores += $resultadoAcciones['errores'];
         }
 
+        // Procesar encuestas de calidad (CSV/XLS de Microsoft Forms)
+        if ($this->archivoEncuesta) {
+            $resultadoEncuesta = (new EncuestaCalidadService())->importarDesdeArchivo($this->archivoEncuesta);
+            $this->logs = array_merge($this->logs, $resultadoEncuesta['logs']);
+            $totalProcesados += $resultadoEncuesta['procesados'];
+            $totalErrores += $resultadoEncuesta['errores'];
+        }
+
         $this->resultado = [
             'procesados' => $totalProcesados,
             'errores'    => $totalErrores,
@@ -129,13 +145,14 @@ class ImportarCsv extends Component
         $this->archivoGrupos = null;
         $this->archivoParticipantes = null;
         $this->archivoAccionesFormativas = null;
+        $this->archivoEncuesta = null;
 
         $this->dispatch('import-completed');
     }
 
     public function limpiar(): void
     {
-        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'archivoAccionesFormativas', 'logs', 'resultado', 'resumenEnriquecimiento']);
+        $this->reset(['archivoEmpresas', 'archivoGrupos', 'archivoParticipantes', 'archivoAccionesFormativas', 'archivoEncuesta', 'logs', 'resultado', 'resumenEnriquecimiento']);
         $this->resetValidation();
     }
 

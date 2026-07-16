@@ -1,0 +1,5 @@
+ID;Hora de inicio;Correo electrónico;Nombre;Nº Acción (Campo No Obligatorio);Nº Grupo (Campo No Obligatorio);Cif Empresa (Campo No Obligatorio);Nombre y Apellido del Alumno:;Email alumno:;1.Organización del curso:    1.1 El curso ha estado bien organizado;3.2 El horario ha favorecido la asistencia al curso;3.Duración y horario          3.1 La duración del curso ha sido suficiente;3.2 El horario ha  favorecido la asistencia al curso;10. Grado de satisfacción general con el curso;Si desea realizar cualquier sugerencia u observación;Fecha de cumplimentación del cuestionario
+1001;1/3/23 9:30:44;anonymous;;7;2;B12345678;JUAN PEREZ GOMEZ;juan@empresa.com;4;4;4;4;4;;1/4/2023
+1002;2/2/23 15:00:10;anonymous;;;;;Maria Lopez Ruiz;;2;1;2;1;1;"Sugerencia:
+Falta mas practica y ejercicios tutorizados";2/2/2023
+1003;3/5/23 10:00:00;anonymous;;;;;Anon Anon;anonymous;3;3;3;3;3;;3/5/2023
