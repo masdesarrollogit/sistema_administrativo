@@ -116,21 +116,16 @@ class EncuestaCalidadService
         $spreadsheet = IOFactory::load($archivo->getRealPath());
         $sheet = $spreadsheet->getActiveSheet();
         $maxRow = $sheet->getHighestDataRow();
-        $maxCol = $sheet->getHighestDataColumn();
+        $maxCol = $sheet->getHighestDataColumn(); // p.ej. "AR" con 44 columnas
 
-        $headers = [];
-        foreach (range('A', $maxCol) as $col) {
-            $headers[] = trim((string) ($sheet->getCell($col . '1')->getFormattedValue() ?? ''));
-        }
+        // rangeToArray maneja columnas de varias letras (no usar range('A','AR'),
+        // que PHP 8.3+ rechaza). $formatData=true → fechas como texto legible.
+        $datos = $sheet->rangeToArray("A1:{$maxCol}{$maxRow}", '', true, true, false);
 
-        $filas = [];
-        for ($row = 2; $row <= $maxRow; $row++) {
-            $fila = [];
-            foreach (range('A', $maxCol) as $col) {
-                $fila[] = trim((string) ($sheet->getCell($col . $row)->getFormattedValue() ?? ''));
-            }
-            $filas[] = $fila;
-        }
+        $limpiar = fn ($fila) => array_map(fn ($v) => trim((string) ($v ?? '')), $fila);
+
+        $headers = $limpiar(array_shift($datos) ?? []);
+        $filas = array_map($limpiar, $datos);
 
         return [$headers, $filas];
     }

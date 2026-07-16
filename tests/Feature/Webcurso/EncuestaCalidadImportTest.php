@@ -180,6 +180,38 @@ it('encuentra el curso aunque esté en otra ficha del alumno (email compartido, 
     expect($cand['curso_tipo'])->toBe('legacy');
 });
 
+it('importa archivos XLSX con más de 26 columnas (columna "AB", "AR"…)', function () {
+    // Excel con 28 columnas → la última es "AB" (dos letras), el caso que rompía range()
+    $headers = array_fill(0, 28, '');
+    $headers[0] = 'ID';
+    $headers[1] = 'Email alumno';
+    $headers[2] = '10. Grado de satisfacción general con el curso';
+    $headers[3] = 'Fecha de cumplimentación';
+    $headers[27] = 'Ultima';
+    $fila = array_fill(0, 28, '');
+    $fila[0] = '9001';
+    $fila[1] = 'x@empresa.com';
+    $fila[2] = '4';
+    $fila[3] = '1/4/2026';
+    $fila[27] = 'z';
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $spreadsheet->getActiveSheet()->fromArray([$headers, $fila], null, 'A1');
+    $path = tempnam(sys_get_temp_dir(), 'enc') . '.xlsx';
+    (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet))->save($path);
+
+    $archivo = new UploadedFile($path, 'encuesta.xlsx', null, null, true);
+    $r = (new EncuestaCalidadService())->importarDesdeArchivo($archivo);
+
+    expect($r['errores'])->toBe(0);
+    expect($r['procesados'])->toBe(1);
+    $e = EncuestaCalidad::where('forms_id', '9001')->first();
+    expect($e->satisfaccion_general)->toBe(4);
+    expect($e->alumno_email)->toBe('x@empresa.com');
+
+    @unlink($path);
+});
+
 it('es idempotente: reimportar no duplica (UPSERT por forms_id)', function () {
     $service = new EncuestaCalidadService();
     $service->importarDesdeArchivo(archivoMuestra());
