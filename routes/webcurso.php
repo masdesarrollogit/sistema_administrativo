@@ -13,6 +13,7 @@ use App\Livewire\Webcurso\CandidatoEstatus;
 use App\Livewire\Webcurso\TutoresIndex;
 use App\Livewire\Webcurso\AccionesFormativasIndex;
 use App\Livewire\Webcurso\AlumnosIndex;
+use App\Livewire\Webcurso\EncuestasCalidadIndex;
 use App\Livewire\Webcurso\ReportesMoodleIndex;
 use App\Livewire\Webcurso\EncomiendaContratosIndex;
 use App\Livewire\Zoho\BooksIndex;
@@ -60,6 +61,9 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
 
         // Reportes Moodle (Fase 1: alumnos no conectados)
         Route::get('/reportes-moodle', ReportesMoodleIndex::class)->name('reportes-moodle');
+
+        // Encuestas de Calidad FUNDAE (satisfacción del alumno)
+        Route::get('/encuestas-calidad', EncuestasCalidadIndex::class)->name('encuestas-calidad');
 
         // Acciones Formativas FUNDAE
         Route::get('/acciones-formativas', AccionesFormativasIndex::class)->name('acciones-formativas');

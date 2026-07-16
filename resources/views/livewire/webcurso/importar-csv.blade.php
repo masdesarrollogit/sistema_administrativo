@@ -132,6 +132,29 @@
                     </div>
                 </div>
 
+                {{-- Encuestas de Calidad FUNDAE (Microsoft Forms) --}}
+                <div class="mb-6 p-6 border-2 border-dashed border-yellow-300 rounded-xl hover:border-yellow-500 transition-colors bg-yellow-50/40">
+                    <div class="text-center">
+                        <span class="text-4xl">⭐</span>
+                        <h3 class="mt-2 text-lg font-semibold text-gray-900">Encuestas de Calidad <span class="text-xs font-normal text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full ml-1">FUNDAE</span></h3>
+                        <p class="text-sm text-gray-500 mb-1">Export (.csv / .xls / .xlsx) del Microsoft Form de satisfacción</p>
+                        <p class="text-xs text-gray-400 mb-4">Detecta columnas por nombre. Idempotente por Id. de respuesta: puedes reimportar el mismo archivo sin duplicar. Vincula al alumno por email y, si no, por nombre.</p>
+
+                        <input type="file" wire:model="archivoEncuesta" accept=".csv,.xls,.xlsx"
+                               class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-yellow-100 file:text-yellow-800 hover:file:bg-yellow-200 cursor-pointer">
+
+                        @error('archivoEncuesta')
+                            <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                        @enderror
+
+                        @if($archivoEncuesta)
+                            <p class="mt-2 text-sm text-yellow-700">
+                                ✅ {{ $archivoEncuesta->getClientOriginalName() }}
+                            </p>
+                        @endif
+                    </div>
+                </div>
+
                 {{-- Información importante --}}
                 <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                     <h4 class="font-semibold text-amber-800 flex items-center gap-2">
@@ -142,6 +165,7 @@
                         <li><strong>Grupos:</strong> Se <strong class="text-red-600">eliminarán todos</strong> los grupos existentes y se cargarán los nuevos.</li>
                         <li><strong>Participantes:</strong> Se <strong class="text-red-600">eliminarán todos</strong> los registros anteriores y se cargarán los nuevos.</li>
                         <li><strong>Acciones Formativas:</strong> Se actualizarán por Número de Acción (UPSERT). No se eliminan registros existentes.</li>
+                        <li><strong>Encuestas de Calidad:</strong> UPSERT por Id. de respuesta del Form (no se borra nada). Reimportar el mismo archivo actualiza, no duplica.</li>
                         <li>Se aceptan archivos <strong>CSV</strong> (con separador punto y coma), <strong>XLS</strong> y <strong>XLSX</strong>.</li>
                     </ul>
                 </div>

@@ -17,7 +17,8 @@
         "phpoffice/phpspreadsheet": "^5.4",
         "smalot/pdfparser": "^2.12",
         "spatie/laravel-permission": "^6.24",
-        "thiagoalessio/tesseract_ocr": "^2.13"
+        "thiagoalessio/tesseract_ocr": "^2.13",
+        "webklex/laravel-imap": "*"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

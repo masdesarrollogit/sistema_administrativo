@@ -126,3 +126,13 @@ Schedule::command('encomienda:sincronizar')
     ->onFailure(function () {
         \Log::error('Error al ejecutar el cron de sincronización de encomienda');
     });
+
+// Lectura IMAP de respuestas del cuestionario de calidad (Power Automate → correo)
+// Protegido por encuesta_calidad.imap_enabled (OFF en dev para no tocar el buzón real)
+Schedule::command('encuestas-calidad:leer-imap')
+    ->everyTenMinutes()
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar el cron de lectura IMAP de encuestas de calidad');
+    });
