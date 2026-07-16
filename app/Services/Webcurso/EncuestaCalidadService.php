@@ -279,7 +279,8 @@ class EncuestaCalidadService
             'alumno_email'          => $this->normalizarEmail($val($c['alumno_email'] ?? null)),
             'numero_accion'         => $this->soloEntero($val($c['numero_accion'] ?? null)),
             'numero_grupo'          => $val($c['numero_grupo'] ?? null) ?: null,
-            'cif_empresa'           => strtoupper($val($c['cif_empresa'] ?? null)) ?: null,
+            // cif indexado (col corta): recortar por si un campo desalineado trae texto largo
+            'cif_empresa'           => mb_substr(strtoupper($val($c['cif_empresa'] ?? null)), 0, 20) ?: null,
             'denominacion_accion'   => $val($c['denominacion_accion'] ?? null) ?: null,
             'modalidad'             => $val($c['modalidad'] ?? null) ?: null,
             'edad_raw'              => $val($c['edad_raw'] ?? null) ?: null,
@@ -695,7 +696,7 @@ class EncuestaCalidadService
         if ($raw === '' || $raw === 'anonymous') {
             return null;
         }
-        return $raw;
+        return mb_substr($raw, 0, 191); // col indexada: recortar valores desalineados
     }
 
     /** Normaliza texto: minúsculas, sin tildes ni ordinales, espacios colapsados. */
