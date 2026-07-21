@@ -4,6 +4,7 @@ namespace App\Livewire\Webcurso;
 
 use App\Models\AccionFormativa;
 use App\Models\AccionFormativaMoodleCurso;
+use App\Models\Tutor;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Moodle\Services\MoodleService;
@@ -34,6 +35,8 @@ class AccionesFormativasIndex extends Component
     public string $vinculoMoodleCourseId = '';
     public string $vinculoMoodleFullname = '';
     public string $vinculoTipo = 'activa';
+    /** @var array<int, string>  Tutores del aula nueva. Opcional: la matriculación los detecta sola. */
+    public array $vinculoTutores = [];
     public string $vinculoBusqueda = '';       // texto de búsqueda por nombre
     public array  $vinculoSugerencias = [];    // resultados de Moodle
     public bool   $vinculoBuscando = false;
@@ -81,6 +84,7 @@ class AccionesFormativasIndex extends Component
         $this->vinculoMoodleCourseId = '';
         $this->vinculoMoodleFullname = '';
         $this->vinculoTipo = 'activa';
+        $this->vinculoTutores = [];
         $this->vinculoBusqueda = '';
         $this->vinculoSugerencias = [];
         $this->vinculoBuscando = false;
@@ -127,17 +131,37 @@ class AccionesFormativasIndex extends Component
             'vinculoMoodleCourseId' => 'required|integer|min:1',
             'vinculoMoodleFullname' => 'required|string|max:255',
             'vinculoTipo'           => 'required|in:plantilla,activa,repaso,desactualizado',
+            'vinculoTutores'        => 'array',
+            'vinculoTutores.*'      => 'exists:tutores,id',
         ]);
 
-        AccionFormativaMoodleCurso::create([
+        $vinculo = AccionFormativaMoodleCurso::create([
             'accion_formativa_id' => $this->accionVinculandoId,
             'moodle_course_id'    => (int) $this->vinculoMoodleCourseId,
             'moodle_fullname'     => $this->vinculoMoodleFullname,
             'tipo'                => $this->vinculoTipo,
         ]);
 
+        if ($this->vinculoTutores) {
+            $vinculo->tutores()->sync($this->vinculoTutores);
+        }
+
         $this->cerrarVinculacion();
         session()->flash('message', 'Curso de Moodle vinculado correctamente.');
+    }
+
+    /**
+     * Añade o quita un tutor de un aula ya vinculada.
+     *
+     * Normalmente no hace falta: la matriculación detecta los tutores por su rol
+     * de profesor en Moodle y los registra sola. Esto sirve para corregirlo
+     * cuando la detección no puede (tutor sin usuario de Moodle, etc.).
+     */
+    public function alternarTutorVinculo(int $vinculoId, int $tutorId): void
+    {
+        AccionFormativaMoodleCurso::findOrFail($vinculoId)
+            ->tutores()
+            ->toggle([$tutorId]);
     }
 
     public function eliminarVinculo(int $vinculoId): void
@@ -197,6 +221,7 @@ class AccionesFormativasIndex extends Component
             'plataformas'        => $plataformas,
             'totalAcciones'      => $totalAcciones,
             'totalVinculadas'    => $totalVinculadas,
+            'tutores'            => Tutor::activos()->orderBy('nombre')->get(),
         ])->layout('layouts.app', ['title' => 'Acciones Formativas - WebCurso']);
     }
 }

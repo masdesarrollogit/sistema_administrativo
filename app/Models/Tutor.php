@@ -33,6 +33,11 @@ class Tutor extends Model
         return $this->hasMany(GrupoFormativo::class, 'tutor_id');
     }
 
+    public function matriculasAutonomas(): HasMany
+    {
+        return $this->hasMany(MatriculaAutonoma::class, 'tutor_id');
+    }
+
     public function scopeActivos($query)
     {
         return $query->where('activo', true);

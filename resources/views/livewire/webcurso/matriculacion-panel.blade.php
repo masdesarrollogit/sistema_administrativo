@@ -222,13 +222,17 @@
                                         @else
                                             {{-- Plataforma Moodle: matriculación via API --}}
                                             @php
-                                                $cursosVinculados = $grupo->accionFormativa->moodleCursos()->where('tipo', 'activa')->get();
-                                                $tutorSinUsername = !$grupo->tutor?->moodle_username;
-                                                $necesitaSelector = $cursosVinculados->count() > 1 && !$grupo->moodle_course_id && $tutorSinUsername;
+                                                $cursosVinculados = $grupo->accionFormativa->moodleCursos()->with('tutores')->where('tipo', 'activa')->get();
+                                                $aulasDelTutor    = $cursosVinculados->filter(fn ($cv) => $cv->tutores->contains('id', $grupo->tutor_id));
+                                                // Solo cuando el aula no está resuelta: varias vinculadas y ninguna
+                                                // (o más de una) con este tutor. En cuanto se registra, desaparece.
+                                                $necesitaSelector = $cursosVinculados->count() > 1
+                                                    && !$grupo->moodle_course_id
+                                                    && $aulasDelTutor->count() !== 1;
                                             @endphp
                                             @if($necesitaSelector)
                                                 <select wire:model="moodleCursosPorGrupo.{{ $grupo->id }}"
-                                                        class="px-2 py-1 border border-gray-300 rounded text-xs">
+                                                        class="px-2 py-1 border border-gray-300 rounded text-xs max-w-xs">
                                                     <option value="">Selecciona aula Moodle</option>
                                                     @foreach($cursosVinculados as $cv)
                                                         <option value="{{ $cv->moodle_course_id }}">{{ $cv->moodle_fullname }}</option>
@@ -341,6 +345,7 @@
                                     <thead>
                                         <tr class="text-gray-400 uppercase text-left">
                                             <th class="py-1 pr-4">Alumno</th>
+                                            <th class="py-1 pr-4">Email</th>
                                             <th class="py-1 pr-4">NIF</th>
                                             <th class="py-1 pr-4">Moodle</th>
                                             <th class="py-1"></th>
@@ -350,6 +355,14 @@
                                         @foreach($grupo->alumnos as $alumnoGrupo)
                                             <tr class="{{ $editandoAlumnoId === $alumnoGrupo->id ? 'bg-amber-50' : '' }}">
                                                 <td class="py-1 pr-4 font-medium text-gray-900">{{ $alumnoGrupo->nombre_completo }}</td>
+                                                <td class="py-1 pr-4">
+                                                    @if($alumnoGrupo->email)
+                                                        <a href="mailto:{{ $alumnoGrupo->email }}"
+                                                           class="text-indigo-600 hover:text-indigo-800 hover:underline">{{ $alumnoGrupo->email }}</a>
+                                                    @else
+                                                        <span class="text-amber-600">sin email</span>
+                                                    @endif
+                                                </td>
                                                 <td class="py-1 pr-4 text-gray-600">{{ $alumnoGrupo->nif }}</td>
                                                 <td class="py-1 pr-4">
                                                     @php $em = $alumnoGrupo->pivot->estado_moodle; @endphp
@@ -361,7 +374,9 @@
                                                             {{ $em ?? 'pendiente' }}
                                                         </span>
                                                     @endif
-                                                    @if($alumnoGrupo->pivot->moodle_username)
+                                                    {{-- El usuario de Moodle es el email; solo se muestra si difiere
+                                                         (caso del alumno sin email, que matricula como {nif}@webcurso.es) --}}
+                                                    @if($alumnoGrupo->pivot->moodle_username && $alumnoGrupo->pivot->moodle_username !== $alumnoGrupo->email)
                                                         <span class="text-gray-400 ml-1">{{ $alumnoGrupo->pivot->moodle_username }}</span>
                                                     @endif
                                                 </td>
@@ -384,7 +399,7 @@
                                             {{-- Formulario edición inline del alumno --}}
                                             @if($editandoAlumnoId === $alumnoGrupo->id)
                                                 <tr>
-                                                    <td colspan="4" class="py-2 px-2">
+                                                    <td colspan="5" class="py-2 px-2">
                                                         <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
                                                             <p class="text-xs font-semibold text-amber-700 uppercase mb-2">Editar alumno</p>
                                                             <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -1049,8 +1064,11 @@
                                 </button>
                                 @if($ma->estado === 'pendiente' || $ma->estado === 'error')
                                     @php
-                                        $cursosVinculadosAut = $ma->accionFormativa->moodleCursos()->where('tipo', 'activa')->get();
-                                        $necesitaSelectorAut = $cursosVinculadosAut->count() > 1 && !$ma->moodle_course_id;
+                                        $cursosVinculadosAut = $ma->accionFormativa->moodleCursos()->with('tutores')->where('tipo', 'activa')->get();
+                                        // Igual que en los grupos: solo si el aula no está ya resuelta por el tutor.
+                                        $necesitaSelectorAut = $cursosVinculadosAut->count() > 1
+                                            && !$ma->moodle_course_id
+                                            && $cursosVinculadosAut->filter(fn ($cv) => $cv->tutores->contains('id', $ma->tutor_id))->count() !== 1;
                                     @endphp
                                     @if($necesitaSelectorAut)
                                         <select wire:model="moodleCursosPorAutonomo.{{ $ma->id }}"

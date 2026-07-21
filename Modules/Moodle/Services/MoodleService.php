@@ -211,6 +211,31 @@ class MoodleService
     }
 
     /**
+     * Obtener los usuarios con rol de profesor en un curso.
+     *
+     * onlyactive=0 es imprescindible: incluye matrículas caducadas y suspendidas.
+     * Las matrículas de los tutores caducan al terminar cada grupo, y sin esta
+     * opción el tutor "desaparece" de su propia aula (ver getUserCourses, que
+     * nunca devuelve cursos con la matrícula vencida).
+     *
+     * withcapability + userfields recortan la respuesta de ~240 usuarios a los
+     * 3 con permisos de edición.
+     *
+     * @return array Lista de usuarios con 'id' y 'username'
+     */
+    public function getCourseTeachers(int $courseId): array
+    {
+        $result = $this->call('core_enrol_get_enrolled_users', [
+            'courseid'         => $courseId,
+            'options[0][name]' => 'onlyactive',     'options[0][value]' => '0',
+            'options[1][name]' => 'withcapability', 'options[1][value]' => 'moodle/course:update',
+            'options[2][name]' => 'userfields',     'options[2][value]' => 'id,username',
+        ]);
+
+        return is_array($result) ? $result : [];
+    }
+
+    /**
      * Crear un grupo dentro de un curso de Moodle.
      * Devuelve el ID del grupo creado.
      */
