@@ -11,4 +11,10 @@ return [
     // permite enviar el Host header correcto (el wwwroot de Moodle) mientras
     // la conexión real se hace a la URL interna (MOODLE_URL).
     'host_override' => env('MOODLE_HOST_OVERRIDE', ''),
+
+    // Días extra que la matrícula del tutor sigue activa después de la fecha
+    // fin del grupo. Permite corregir y calificar lo que los alumnos entregaron
+    // el último día: sin este margen, el tutor pierde el acceso al aula a la vez
+    // que ellos y no puede evaluar esas entregas.
+    'tutor_dias_extra' => (int) env('MOODLE_TUTOR_DIAS_EXTRA', 10),
 ];

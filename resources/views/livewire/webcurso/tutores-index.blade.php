@@ -16,6 +16,12 @@
             </div>
         @endif
 
+        @if(session('error'))
+            <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                {{ session('error') }}
+            </div>
+        @endif
+
         {{-- Filtros --}}
         <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -101,10 +107,25 @@
                                 </button>
                             </td>
                             <td class="px-6 py-4">
-                                <button wire:click="abrirModalEditar({{ $tutor->id }})"
-                                        class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
-                                    Editar
-                                </button>
+                                <div class="flex items-center gap-3">
+                                    <button wire:click="abrirModalEditar({{ $tutor->id }})"
+                                            class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+                                        Editar
+                                    </button>
+                                    @php $sinHistorial = $tutor->grupos_formativos_count === 0 && $tutor->matriculas_autonomas_count === 0; @endphp
+                                    @if($sinHistorial)
+                                        <button wire:click="eliminar({{ $tutor->id }})"
+                                                wire:confirm="¿Eliminar a {{ $tutor->nombre_completo }}? Esta acción no se puede deshacer."
+                                                class="text-red-500 hover:text-red-700 text-sm font-medium">
+                                            Eliminar
+                                        </button>
+                                    @else
+                                        <span class="text-gray-300 text-sm cursor-not-allowed"
+                                              title="Tiene historial formativo ({{ $tutor->grupos_formativos_count }} grupo(s), {{ $tutor->matriculas_autonomas_count }} autónomo(s)). Desactívalo en lugar de eliminarlo.">
+                                            Eliminar
+                                        </span>
+                                    @endif
+                                </div>
                             </td>
                         </tr>
                     @empty

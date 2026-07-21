@@ -147,30 +147,53 @@
                                 <td colspan="7" class="px-4 py-4 bg-indigo-50 border-b-2 border-indigo-300">
 
                                     {{-- Vínculos existentes --}}
-                                    @php $vinculos = $accion->moodleCursos()->get(); @endphp
+                                    @php $vinculos = $accion->moodleCursos()->with('tutores')->get(); @endphp
                                     @if($vinculos->isNotEmpty())
                                         <div class="mb-4">
                                             <p class="text-xs font-semibold text-gray-600 uppercase mb-2">Cursos vinculados</p>
                                             <div class="space-y-1">
                                                 @foreach($vinculos as $v)
-                                                    <div class="flex items-center justify-between bg-white rounded px-3 py-2 border border-gray-200 text-sm">
-                                                        <span>
-                                                            <span class="font-medium text-gray-900">ID {{ $v->moodle_course_id }}</span>
-                                                            — {{ $v->moodle_fullname }}
-                                                            <span class="ml-2 px-1.5 py-0.5 text-xs rounded
-                                                                {{ $v->tipo === 'activa' ? 'bg-green-100 text-green-700' : '' }}
-                                                                {{ $v->tipo === 'plantilla' ? 'bg-blue-100 text-blue-700' : '' }}
-                                                                {{ $v->tipo === 'repaso' ? 'bg-amber-100 text-amber-700' : '' }}
-                                                                {{ $v->tipo === 'desactualizado' ? 'bg-gray-100 text-gray-500' : '' }}">
-                                                                {{ $v->tipo }}
+                                                    <div class="bg-white rounded px-3 py-2 border border-gray-200 text-sm">
+                                                        <div class="flex items-center justify-between">
+                                                            <span>
+                                                                <span class="font-medium text-gray-900">ID {{ $v->moodle_course_id }}</span>
+                                                                — {{ $v->moodle_fullname }}
+                                                                <span class="ml-2 px-1.5 py-0.5 text-xs rounded
+                                                                    {{ $v->tipo === 'activa' ? 'bg-green-100 text-green-700' : '' }}
+                                                                    {{ $v->tipo === 'plantilla' ? 'bg-blue-100 text-blue-700' : '' }}
+                                                                    {{ $v->tipo === 'repaso' ? 'bg-amber-100 text-amber-700' : '' }}
+                                                                    {{ $v->tipo === 'desactualizado' ? 'bg-gray-100 text-gray-500' : '' }}">
+                                                                    {{ $v->tipo }}
+                                                                </span>
                                                             </span>
-                                                        </span>
-                                                        <button wire:click="eliminarVinculo({{ $v->id }})"
-                                                                wire:confirm="¿Eliminar este vínculo?"
-                                                                class="text-red-400 hover:text-red-600 text-xs ml-4">Eliminar</button>
+                                                            <button wire:click="eliminarVinculo({{ $v->id }})"
+                                                                    wire:confirm="¿Eliminar este vínculo?"
+                                                                    class="text-red-400 hover:text-red-600 text-xs ml-4 shrink-0">Eliminar</button>
+                                                        </div>
+                                                        {{-- Tutores del aula: una misma aula puede impartirla más de uno.
+                                                             La matriculación los va registrando al detectarlos en Moodle. --}}
+                                                        <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                                            <span class="text-xs text-gray-400 mr-1">Imparten:</span>
+                                                            @foreach($tutores as $t)
+                                                                @php $imparte = $v->tutores->contains('id', $t->id); @endphp
+                                                                <button wire:click="alternarTutorVinculo({{ $v->id }}, {{ $t->id }})"
+                                                                        class="px-2 py-0.5 rounded-full text-xs border transition
+                                                                            {{ $imparte
+                                                                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200 font-medium'
+                                                                                : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300' }}">
+                                                                    {{ $imparte ? '✓ ' : '' }}{{ $t->nombre_completo }}
+                                                                </button>
+                                                            @endforeach
+                                                            @if($v->tutores->isEmpty())
+                                                                <span class="text-xs text-gray-300 italic ml-1">sin detectar todavía</span>
+                                                            @endif
+                                                        </div>
                                                     </div>
                                                 @endforeach
                                             </div>
+                                            <p class="text-xs text-gray-400 mt-1.5">
+                                                Los tutores se detectan solos al matricular, por su rol de profesor en Moodle. Un aula puede tener varios. Pulsa un nombre para añadirlo o quitarlo a mano.
+                                            </p>
                                         </div>
                                     @endif
 
@@ -217,6 +240,22 @@
                                                 <option value="repaso">Repaso</option>
                                                 <option value="desactualizado">Desactualizado</option>
                                             </select>
+                                        </div>
+                                        <div class="col-span-2 md:col-span-3">
+                                            <label class="block text-xs font-medium text-gray-600 mb-1">
+                                                Tutores que la imparten
+                                                <span class="font-normal text-gray-400">(opcional — se detectan solos al matricular)</span>
+                                            </label>
+                                            <div class="flex flex-wrap gap-3">
+                                                @foreach($tutores as $t)
+                                                    <label class="inline-flex items-center gap-1.5 text-sm text-gray-700">
+                                                        <input type="checkbox" wire:model="vinculoTutores" value="{{ $t->id }}"
+                                                               class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                                        {{ $t->nombre_completo }}
+                                                    </label>
+                                                @endforeach
+                                            </div>
+                                            @error('vinculoTutores.*') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                                         </div>
                                     </div>
                                     <div class="flex gap-2 mt-3">

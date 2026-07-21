@@ -240,14 +240,19 @@ class GrupoFormativo extends Model
             ]);
         }
 
-        // Reactivar matrícula del tutor con fecha fin del grupo
+        // Reactivar matrícula del tutor. Termina más tarde que la de los alumnos
+        // (config moodle.tutor_dias_extra) para que pueda corregir las entregas
+        // del último día, cuando ellos ya han perdido el acceso.
         $tutor = $this->tutor;
         if ($tutor?->moodle_username) {
             try {
                 $tutorUser = $moodle->findUserByUsername($tutor->moodle_username);
                 if ($tutorUser) {
                     $timeend = $this->fecha_fin
-                        ? \Carbon\Carbon::parse($this->fecha_fin->format('Y-m-d'), 'Europe/Madrid')->endOfDay()->getTimestamp()
+                        ? \Carbon\Carbon::parse($this->fecha_fin->format('Y-m-d'), 'Europe/Madrid')
+                            ->addDays((int) config('moodle.tutor_dias_extra', 10))
+                            ->endOfDay()
+                            ->getTimestamp()
                         : null;
                     $moodle->enrolInCourse($tutorUser['id'], $moodleCourseId, roleId: 3, timestart: null, timeend: $timeend, suspend: 0);
                 }

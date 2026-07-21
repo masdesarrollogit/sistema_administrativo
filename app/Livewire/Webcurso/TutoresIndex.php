@@ -123,6 +123,47 @@ class TutoresIndex extends Component
         $tutor->update(['activo' => !$tutor->activo]);
     }
 
+    /**
+     * Elimina un tutor, solo si no tiene historial formativo.
+     *
+     * Las claves foráneas de grupos_formativos y matriculas_autonomas están en
+     * CASCADE: borrar un tutor con grupos se llevaría por delante esos grupos
+     * con sus alumnos, XMLs y PDFs. Además FUNDAE obliga a conservar la
+     * documentación 4 años, así que un tutor con historial se desactiva
+     * (deja de aparecer al crear grupos), nunca se borra.
+     */
+    public function eliminar(int $id): void
+    {
+        $tutor = Tutor::withCount([
+            'gruposFormativos',
+            'gruposFormativos as grupos_activos_count' => fn ($q) => $q->whereIn('estado', ['abierto', 'comunicado', 'en_curso']),
+            'matriculasAutonomas',
+        ])->findOrFail($id);
+
+        // Formación en marcha: es el caso más grave, se avisa aparte.
+        if ($tutor->grupos_activos_count) {
+            session()->flash('error', "No se puede eliminar a {$tutor->nombre_completo}: está asignado a {$tutor->grupos_activos_count} grupo(s) en curso o pendientes de cerrar. Reasigna esos grupos a otro tutor primero.");
+            return;
+        }
+
+        // Historial cerrado: borrarlo arrastraría los grupos por CASCADE, y FUNDAE
+        // obliga a conservar la documentación 4 años. Se desactiva, no se borra.
+        $historial = array_filter([
+            $tutor->grupos_formativos_count    ? "{$tutor->grupos_formativos_count} grupo(s) formativo(s)" : null,
+            $tutor->matriculas_autonomas_count ? "{$tutor->matriculas_autonomas_count} matrícula(s) de autónomo" : null,
+        ]);
+
+        if ($historial) {
+            session()->flash('error', "No se puede eliminar a {$tutor->nombre_completo}: tiene " . implode(' y ', $historial) . ' en su historial, y borrarlo eliminaría también esos registros. Desactívalo para que deje de aparecer al crear grupos.');
+            return;
+        }
+
+        $nombre = $tutor->nombre_completo;
+        $tutor->delete();
+
+        session()->flash('message', "Tutor {$nombre} eliminado.");
+    }
+
     public function cerrarModal(): void
     {
         $this->mostrarModal = false;
@@ -163,7 +204,9 @@ class TutoresIndex extends Component
             $query->where('activo', (bool) $this->filtroActivo);
         }
 
-        $tutores = $query->orderBy('apellido1')->paginate(15);
+        $tutores = $query->withCount(['gruposFormativos', 'matriculasAutonomas'])
+            ->orderBy('apellido1')
+            ->paginate(15);
 
         return view('livewire.webcurso.tutores-index', [
             'tutores' => $tutores,

@@ -3,6 +3,7 @@
 namespace App\Livewire\Webcurso;
 
 use App\Models\AccionFormativa;
+use App\Models\AccionFormativaMoodleCurso;
 use App\Models\Alumno;
 use App\Models\Candidato;
 use App\Models\EncomiendaAlumnoStaging;
@@ -16,9 +17,11 @@ use App\Services\Webcurso\FundaeXmlService;
 use App\Services\Webcurso\PdfFichaInscripcionParser;
 use App\Services\Webcurso\PdfNotificacionFundaeParser;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Modules\Moodle\Services\MoodleService;
 
 class MatriculacionPanel extends Component
 {
@@ -1075,60 +1078,154 @@ class MatriculacionPanel extends Component
         $grupo = GrupoFormativo::with(['alumnos', 'tutor', 'accionFormativa'])->findOrFail($grupoId);
 
         // Si ya tiene curso asignado de una matriculación anterior, usarlo
-        $moodleCourseId = $grupo->moodle_course_id
-            ?? ($this->moodleCursosPorGrupo[$grupoId] ?? null);
+        $moodleCourseId = $grupo->moodle_course_id;
 
         if (!$moodleCourseId) {
-            $cursosVinculados = $grupo->accionFormativa->moodleCursos()->where('tipo', 'activa')->get();
+            $resolucion = $this->resolverAulaMoodle(
+                $grupo->accionFormativa,
+                $grupo->tutor,
+                $this->moodleCursosPorGrupo[$grupoId] ?? null
+            );
 
-            if ($cursosVinculados->isEmpty()) {
-                session()->flash('error-matricula', 'No hay cursos de Moodle vinculados a esta acción formativa. Vincula primero en Acciones Formativas.');
+            if ($resolucion['error']) {
+                session()->flash('error-matricula', $resolucion['error']);
                 return;
             }
 
-            // Intentar autodetectar por el username del tutor
-            $tutor = $grupo->tutor;
-            if ($tutor?->moodle_username && $cursosVinculados->count() > 1) {
-                try {
-                    $moodle = app(\Modules\Moodle\Services\MoodleService::class);
-                    $moodleUser = $moodle->findUserByUsername($tutor->moodle_username);
-
-                    if ($moodleUser) {
-                        $cursosTutor = collect($moodle->getUserCourses($moodleUser['id']))
-                            ->pluck('id')
-                            ->toArray();
-
-                        $coincidencias = $cursosVinculados->filter(
-                            fn($c) => in_array($c->moodle_course_id, $cursosTutor)
-                        );
-
-                        if ($coincidencias->count() === 1) {
-                            $moodleCourseId = $coincidencias->first()->moodle_course_id;
-                        } elseif ($coincidencias->count() > 1) {
-                            // Múltiples coincidencias: necesita selección manual
-                            $this->moodleCursosPorGrupo[$grupoId] = null;
-                            session()->flash('error-matricula', 'El tutor está en varios cursos vinculados. Selecciona manualmente el aula.');
-                            return;
-                        }
-                    }
-                } catch (\Exception $e) {
-                    // Si falla la consulta Moodle, continuar con selección manual
-                }
-            }
-
-            // Si solo hay un curso vinculado, usarlo directamente
-            if (!$moodleCourseId && $cursosVinculados->count() === 1) {
-                $moodleCourseId = $cursosVinculados->first()->moodle_course_id;
-            }
-
-            if (!$moodleCourseId) {
-                session()->flash('error-matricula', 'Selecciona el aula de Moodle antes de matricular.');
-                return;
-            }
+            $moodleCourseId = $resolucion['course_id'];
         }
 
         $resultados = $grupo->ejecutarEnMoodle($moodleCourseId);
         session()->flash('message-matricula', "Moodle: {$resultados['exitos']} matriculados, {$resultados['errores']} errores.");
+    }
+
+    /**
+     * Resuelve en qué aula de Moodle hay que matricular, según el tutor asignado.
+     *
+     * El universo de aulas candidatas es SIEMPRE el de los vínculos de tipo
+     * 'activa' de la acción formativa: nunca se matricula en un curso que no se
+     * haya vinculado desde Acciones Formativas.
+     *
+     * Orden de resolución:
+     *   1. Selección manual del desplegable, si la hubo.
+     *   2. Aula única vinculada.
+     *   3. Aula que ya tiene registrado a este tutor — sin tocar Moodle.
+     *   4. Detección por rol de profesor en Moodle; el tutor se registra en el
+     *      aula para que las siguientes matriculaciones no llamen a la API.
+     *   5. Fallback por matrículas activas del tutor (cubre a quien imparte sin
+     *      permisos de edición, que el paso 4 no ve).
+     *
+     * Si ninguno resuelve, devuelve un error que explica la causa concreta; la
+     * vista muestra el desplegable para elegir a mano.
+     *
+     * @return array{course_id: ?int, error: ?string}
+     */
+    private function resolverAulaMoodle(?AccionFormativa $accion, ?Tutor $tutor, mixed $seleccionManual): array
+    {
+        if ($seleccionManual) {
+            return ['course_id' => (int) $seleccionManual, 'error' => null];
+        }
+
+        if (!$accion) {
+            return ['course_id' => null, 'error' => 'El grupo no tiene acción formativa asignada.'];
+        }
+
+        $vinculos = $accion->moodleCursos()->with('tutores')->where('tipo', 'activa')->get();
+
+        if ($vinculos->isEmpty()) {
+            return ['course_id' => null, 'error' => 'No hay cursos de Moodle vinculados a esta acción formativa. Vincula primero en Acciones Formativas.'];
+        }
+
+        if ($vinculos->count() === 1) {
+            return ['course_id' => $vinculos->first()->moodle_course_id, 'error' => null];
+        }
+
+        $nombreTutor = $tutor?->nombre_completo ?: 'El tutor del grupo';
+        $totalAulas  = $vinculos->count();
+
+        // 3. Aula que ya tiene registrado a este tutor (detectada antes o puesta a mano).
+        if ($tutor) {
+            $registradas = $vinculos->filter(fn ($v) => $v->tutores->contains('id', $tutor->id));
+
+            if ($registradas->count() === 1) {
+                return ['course_id' => $registradas->first()->moodle_course_id, 'error' => null];
+            }
+
+            if ($registradas->count() > 1) {
+                return ['course_id' => null, 'error' => "{$nombreTutor} está asignado a {$registradas->count()} aulas de esta acción. Elige cuál corresponde o corrígelo en Acciones Formativas."];
+            }
+        }
+
+        if (!$tutor?->moodle_username) {
+            return ['course_id' => null, 'error' => "{$nombreTutor} no tiene usuario de Moodle configurado. Elige el aula manualmente o complétalo en Tutores."];
+        }
+
+        $moodle   = app(MoodleService::class);
+        $username = mb_strtolower(trim($tutor->moodle_username));
+
+        // 4. Quién es profesor de cada aula vinculada. A diferencia de las
+        //    matrículas del tutor, el rol no desaparece cuando la matrícula caduca.
+        try {
+            $porRol = $vinculos->filter(
+                fn ($v) => collect($moodle->getCourseTeachers($v->moodle_course_id))
+                    ->contains(fn ($u) => mb_strtolower(trim($u['username'] ?? '')) === $username)
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Moodle: fallo al detectar el aula por rol de profesor', [
+                'accion_formativa_id' => $accion->id,
+                'tutor'               => $tutor->moodle_username,
+                'error'               => $e->getMessage(),
+            ]);
+
+            return ['course_id' => null, 'error' => "No se pudo consultar Moodle para detectar el aula de {$nombreTutor}. Elige el aula manualmente."];
+        }
+
+        if ($porRol->count() === 1) {
+            return ['course_id' => $this->recordarAulaDelTutor($porRol->first(), $tutor), 'error' => null];
+        }
+
+        if ($porRol->count() > 1) {
+            return ['course_id' => null, 'error' => "{$nombreTutor} es profesor en {$porRol->count()} de las aulas vinculadas. Elige cuál corresponde."];
+        }
+
+        // 5. Fallback: cursos donde el tutor tiene matrícula activa.
+        try {
+            $moodleUser = $moodle->findUserByUsername($tutor->moodle_username);
+
+            if ($moodleUser) {
+                $cursosTutor = collect($moodle->getUserCourses($moodleUser['id']))
+                    ->map(fn ($c) => (int) ($c['id'] ?? 0))
+                    ->all();
+
+                $porMatricula = $vinculos->filter(fn ($v) => in_array($v->moodle_course_id, $cursosTutor, true));
+
+                if ($porMatricula->count() === 1) {
+                    return ['course_id' => $this->recordarAulaDelTutor($porMatricula->first(), $tutor), 'error' => null];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Moodle: fallo en el fallback por matrículas del tutor', [
+                'accion_formativa_id' => $accion->id,
+                'tutor'               => $tutor->moodle_username,
+                'error'               => $e->getMessage(),
+            ]);
+        }
+
+        return ['course_id' => null, 'error' => "{$nombreTutor} no figura como profesor en ninguna de las {$totalAulas} aulas vinculadas a esta acción. Elige el aula manualmente."];
+    }
+
+    /**
+     * Registra el tutor detectado en el aula para no repetir la consulta a
+     * Moodle en las siguientes matriculaciones. Devuelve el id del curso.
+     *
+     * Usa syncWithoutDetaching: un aula compartida acumula a sus tutores según
+     * se van detectando, sin que el último desplace a los anteriores.
+     */
+    private function recordarAulaDelTutor(AccionFormativaMoodleCurso $vinculo, Tutor $tutor): int
+    {
+        $vinculo->tutores()->syncWithoutDetaching([$tutor->id]);
+
+        return $vinculo->moodle_course_id;
     }
 
     public function marcarMatriculadoAulasystem(int $grupoId): void
@@ -1532,48 +1629,21 @@ class MatriculacionPanel extends Component
             ->where('candidato_id', $this->candidato->id)
             ->findOrFail($matriculaId);
 
-        $moodleCourseId = $matricula->moodle_course_id
-            ?? ($this->moodleCursosPorAutonomo[$matriculaId] ?? null);
+        $moodleCourseId = $matricula->moodle_course_id;
 
         if (!$moodleCourseId) {
-            $cursosVinculados = $matricula->accionFormativa->moodleCursos()->where('tipo', 'activa')->get();
+            $resolucion = $this->resolverAulaMoodle(
+                $matricula->accionFormativa,
+                $matricula->tutor,
+                $this->moodleCursosPorAutonomo[$matriculaId] ?? null
+            );
 
-            if ($cursosVinculados->isEmpty()) {
-                session()->flash('error-matricula', 'No hay cursos Moodle vinculados a esta acción formativa.');
+            if ($resolucion['error']) {
+                session()->flash('error-matricula', $resolucion['error']);
                 return;
             }
 
-            // Autodetectar por tutor
-            $tutor = $matricula->tutor;
-            if ($tutor?->moodle_username && $cursosVinculados->count() > 1) {
-                try {
-                    $moodle = app(\Modules\Moodle\Services\MoodleService::class);
-                    $moodleUser = $moodle->findUserByUsername($tutor->moodle_username);
-
-                    if ($moodleUser) {
-                        $cursosTutor = collect($moodle->getUserCourses($moodleUser['id']))->pluck('id')->toArray();
-                        $coincidencias = $cursosVinculados->filter(fn($c) => in_array($c->moodle_course_id, $cursosTutor));
-
-                        if ($coincidencias->count() === 1) {
-                            $moodleCourseId = $coincidencias->first()->moodle_course_id;
-                        } elseif ($coincidencias->count() > 1) {
-                            session()->flash('error-matricula', 'El tutor está en varios cursos vinculados. Selecciona manualmente el aula.');
-                            return;
-                        }
-                    }
-                } catch (\Exception $e) {
-                    // Continuar con selección manual
-                }
-            }
-
-            if (!$moodleCourseId && $cursosVinculados->count() === 1) {
-                $moodleCourseId = $cursosVinculados->first()->moodle_course_id;
-            }
-
-            if (!$moodleCourseId) {
-                session()->flash('error-matricula', 'Selecciona el aula de Moodle antes de matricular.');
-                return;
-            }
+            $moodleCourseId = $resolucion['course_id'];
         }
 
         $resultados = $matricula->ejecutarEnMoodle($moodleCourseId);
