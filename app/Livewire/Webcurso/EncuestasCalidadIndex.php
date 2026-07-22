@@ -4,6 +4,7 @@ namespace App\Livewire\Webcurso;
 
 use App\Models\Alumno;
 use App\Models\EncuestaCalidad;
+use App\Models\Tutor;
 use App\Services\Webcurso\EncuestaCalidadService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -25,11 +26,20 @@ class EncuestasCalidadIndex extends Component
 
     public string $filtroAno          = '2026';
     public string $filtroSatisfaccion = '';   // '' | '4' | '3mas' | 'menos3'
-    public string $filtroAccion       = '';
+    public string $filtroCurso        = '';   // busca en curso_resuelto
+    public string $filtroTipoCurso    = '';   // fundae | legacy | autonomo | bonificado
+    public string $filtroTutor        = '';   // tutor_id
+    public string $filtroEmpresa      = '';   // cif
+    public string $filtroDesde        = '';
+    public string $filtroHasta        = '';
     public string $search             = '';
     public bool   $soloObservaciones  = false;
     public string $orden              = 'desc'; // satisfacción: desc (4 primero) | asc (1 primero)
     public int    $perPage            = 25;
+
+    // Tabla de estadísticas por curso
+    public string $ordenCurso   = 'media_desc'; // media_desc | media_asc | respuestas | nombre
+    public bool   $minRespuestas = true;        // solo cursos con >= 3 respuestas
 
     // Modal historial de cursos del alumno
     public bool    $mostrarHistorial = false;
@@ -39,7 +49,12 @@ class EncuestasCalidadIndex extends Component
     protected $queryString = [
         'filtroAno'          => ['except' => '2026'],
         'filtroSatisfaccion' => ['except' => ''],
-        'filtroAccion'       => ['except' => ''],
+        'filtroCurso'        => ['except' => ''],
+        'filtroTipoCurso'    => ['except' => ''],
+        'filtroTutor'        => ['except' => ''],
+        'filtroEmpresa'      => ['except' => ''],
+        'filtroDesde'        => ['except' => ''],
+        'filtroHasta'        => ['except' => ''],
         'search'             => ['except' => ''],
         'soloObservaciones'  => ['except' => false],
         'orden'              => ['except' => 'desc'],
@@ -48,21 +63,32 @@ class EncuestasCalidadIndex extends Component
 
     public function updatingFiltroAno(): void          { $this->resetPage(); }
     public function updatingFiltroSatisfaccion(): void { $this->resetPage(); }
-    public function updatingFiltroAccion(): void       { $this->resetPage(); }
+    public function updatingFiltroCurso(): void        { $this->resetPage(); }
+    public function updatingFiltroTipoCurso(): void    { $this->resetPage(); }
+    public function updatingFiltroTutor(): void        { $this->resetPage(); }
+    public function updatingFiltroEmpresa(): void      { $this->resetPage(); }
+    public function updatingFiltroDesde(): void        { $this->resetPage(); }
+    public function updatingFiltroHasta(): void        { $this->resetPage(); }
     public function updatingSearch(): void             { $this->resetPage(); }
     public function updatingSoloObservaciones(): void  { $this->resetPage(); }
     public function updatingOrden(): void              { $this->resetPage(); }
 
     public function limpiarFiltros(): void
     {
-        $this->reset(['filtroSatisfaccion', 'filtroAccion', 'search', 'soloObservaciones', 'orden']);
+        $this->reset([
+            'filtroSatisfaccion', 'filtroCurso', 'filtroTipoCurso', 'filtroTutor',
+            'filtroEmpresa', 'filtroDesde', 'filtroHasta', 'search', 'soloObservaciones', 'orden',
+        ]);
         $this->filtroAno = '2026';
         $this->resetPage();
     }
 
-    /** Atajo desde los KPIs. */
+    /** Atajos desde los KPIs / tabla por curso. */
     public function verPromotores(): void { $this->filtroSatisfaccion = '4';      $this->orden = 'desc'; $this->soloObservaciones = false; $this->resetPage(); }
     public function verDetractores(): void { $this->filtroSatisfaccion = 'menos3'; $this->orden = 'asc';  $this->resetPage(); }
+
+    /** Enfoca todo (KPIs, distribución, listado) a un curso concreto. */
+    public function verCurso(string $curso): void { $this->filtroCurso = $curso; $this->resetPage(); }
 
     // ─── Modal historial de cursos del alumno ─────────────────────────────────
 
@@ -97,17 +123,20 @@ class EncuestasCalidadIndex extends Component
 
     // ─── Query principal ──────────────────────────────────────────────────────
 
-    /** Aplica los filtros comunes (año, acción, búsqueda, observaciones). */
+    /** Aplica los filtros comunes (año/rango, curso, tipo, tutor, empresa, búsqueda, observaciones). */
     protected function baseQuery()
     {
+        $usaRango = $this->filtroDesde !== '' || $this->filtroHasta !== '';
+
         return EncuestaCalidad::query()
-            ->when($this->filtroAno !== '', fn ($q) => $q->whereYear('fecha_cumplimentacion', $this->filtroAno))
-            ->when($this->filtroAccion !== '', function ($q) {
-                $q->where(function ($sub) {
-                    $sub->where('numero_accion', $this->filtroAccion)
-                        ->orWhere('denominacion_accion', 'like', "%{$this->filtroAccion}%");
-                });
-            })
+            // El rango de fechas tiene prioridad sobre el año (para no chocar)
+            ->when(!$usaRango && $this->filtroAno !== '', fn ($q) => $q->whereYear('fecha_cumplimentacion', $this->filtroAno))
+            ->when($this->filtroDesde !== '', fn ($q) => $q->whereDate('fecha_cumplimentacion', '>=', $this->filtroDesde))
+            ->when($this->filtroHasta !== '', fn ($q) => $q->whereDate('fecha_cumplimentacion', '<=', $this->filtroHasta))
+            ->when($this->filtroCurso !== '', fn ($q) => $q->where('curso_resuelto', 'like', "%{$this->filtroCurso}%"))
+            ->when($this->filtroTipoCurso !== '', fn ($q) => $q->where('curso_tipo', $this->filtroTipoCurso))
+            ->when($this->filtroTutor !== '', fn ($q) => $q->where('tutor_id', $this->filtroTutor))
+            ->when($this->filtroEmpresa !== '', fn ($q) => $q->where('cif_empresa', 'like', "%{$this->filtroEmpresa}%"))
             ->when($this->search !== '', function ($q) {
                 $q->where(function ($sub) {
                     $sub->where('alumno_nombre', 'like', "%{$this->search}%")
@@ -200,29 +229,130 @@ class EncuestasCalidadIndex extends Component
     }
 
     /**
-     * Ranking de cursos por nota media del item 10 (respeta año).
-     * Agrupa por el CURSO RESUELTO (el nombre que traemos del historial del
-     * alumno), no por el Nº Acción del formulario — que casi siempre viene vacío.
-     * Requiere un mínimo de respuestas por curso para que la media sea fiable.
+     * Estadísticas por curso: una fila por curso_resuelto con nº de respuestas,
+     * media del item 10 y conteos por nota (1-4). Respeta los filtros comunes.
      */
-    protected function getRanking(string $dir): array
+    protected function getEstadisticasPorCurso(): array
     {
-        $min = 3; // mínimo de respuestas por curso
-
-        return EncuestaCalidad::query()
+        $query = $this->baseQuery()
             ->whereNotNull('satisfaccion_general')
             ->whereNotNull('curso_resuelto')
             ->where('curso_resuelto', '!=', '')
-            ->when($this->filtroAno !== '', fn ($q) => $q->whereYear('fecha_cumplimentacion', $this->filtroAno))
             ->groupBy('curso_resuelto')
             ->select('curso_resuelto')
+            ->selectRaw('MAX(curso_tipo) as curso_tipo')
+            ->selectRaw('COUNT(*) as respuestas')
+            ->selectRaw('AVG(satisfaccion_general) as media')
+            ->selectRaw('SUM(CASE WHEN satisfaccion_general = 1 THEN 1 ELSE 0 END) as n1')
+            ->selectRaw('SUM(CASE WHEN satisfaccion_general = 2 THEN 1 ELSE 0 END) as n2')
+            ->selectRaw('SUM(CASE WHEN satisfaccion_general = 3 THEN 1 ELSE 0 END) as n3')
+            ->selectRaw('SUM(CASE WHEN satisfaccion_general = 4 THEN 1 ELSE 0 END) as n4');
+
+        if ($this->minRespuestas) {
+            $query->havingRaw('COUNT(*) >= 3');
+        }
+
+        match ($this->ordenCurso) {
+            'media_asc'  => $query->orderBy('media', 'asc')->orderByDesc('respuestas'),
+            'respuestas' => $query->orderByDesc('respuestas')->orderByDesc('media'),
+            'nombre'     => $query->orderBy('curso_resuelto'),
+            default      => $query->orderByDesc('media')->orderByDesc('respuestas'),
+        };
+
+        return $query->get()->toArray();
+    }
+
+    /** Distribución global de notas 1-4 (respeta filtros comunes, NO la banda de satisfacción). */
+    protected function getDistribucion(): array
+    {
+        $base = $this->baseQuery()->whereNotNull('satisfaccion_general');
+        $total = (clone $base)->count();
+
+        $dist = [];
+        foreach ([1, 2, 3, 4] as $n) {
+            $c = (clone $base)->where('satisfaccion_general', $n)->count();
+            $dist[$n] = ['n' => $c, 'pct' => $total > 0 ? round($c * 100 / $total, 1) : 0];
+        }
+        $dist['total'] = $total;
+
+        return $dist;
+    }
+
+    /** Media de satisfacción por tutor (solo cursos resueltos a grupo FUNDAE con tutor). */
+    protected function getMediaPorTutor(): array
+    {
+        $filas = $this->baseQuery()
+            ->whereNotNull('satisfaccion_general')
+            ->whereNotNull('tutor_id')
+            ->groupBy('tutor_id')
+            ->select('tutor_id')
             ->selectRaw('AVG(satisfaccion_general) as media')
             ->selectRaw('COUNT(*) as respuestas')
-            ->havingRaw('COUNT(*) >= ?', [$min])
-            ->orderBy('media', $dir)
-            ->orderByDesc('respuestas')
-            ->limit(5)
-            ->get()
+            ->havingRaw('COUNT(*) >= 3')
+            ->orderByDesc('media')
+            ->get();
+
+        $tutores = Tutor::whereIn('id', $filas->pluck('tutor_id'))->get()->keyBy('id');
+
+        return $filas->map(fn ($r) => [
+            'tutor'      => optional($tutores->get($r->tutor_id))->nombre_completo
+                ?? trim((optional($tutores->get($r->tutor_id))->nombre ?? '') . ' ' . (optional($tutores->get($r->tutor_id))->apellido1 ?? ''))
+                ?: ('Tutor #' . $r->tutor_id),
+            'media'      => round($r->media, 2),
+            'respuestas' => $r->respuestas,
+        ])->toArray();
+    }
+
+    /** Media de cada bloque FUNDAE (promedio de las medias de sus items). Respeta filtros. */
+    protected function getMediasPorBloque(): array
+    {
+        $bloques = config('encuesta_calidad.bloques', []);
+
+        // Media de cada item + satisfacción en un solo query. Alias con prefijo
+        // "a_" para NO colisionar con las columnas casteadas a integer del modelo
+        // (si no, el cast truncaría la media a entero).
+        $query = $this->baseQuery();
+        for ($i = 1; $i <= 19; $i++) {
+            $col = 'item_' . str_pad((string) $i, 2, '0', STR_PAD_LEFT);
+            $query->selectRaw("AVG({$col}) as a_{$col}");
+        }
+        $query->selectRaw('AVG(satisfaccion_general) as a_satisfaccion_general');
+        $medias = (array) ($query->first()?->getAttributes() ?? []);
+
+        $out = [];
+        foreach ($bloques as $bloque) {
+            $vals = [];
+            foreach ($bloque['items'] as $col) {
+                $alias = 'a_' . $col;
+                if (isset($medias[$alias]) && $medias[$alias] !== null) {
+                    $vals[] = (float) $medias[$alias];
+                }
+            }
+            $out[] = [
+                'label' => $bloque['label'],
+                'media' => $vals ? round(array_sum($vals) / count($vals), 2) : null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /** Nombres de curso distintos (para el autocompletado del filtro). */
+    protected function getCursosDisponibles(): array
+    {
+        return EncuestaCalidad::query()
+            ->whereNotNull('curso_resuelto')->where('curso_resuelto', '!=', '')
+            ->distinct()->orderBy('curso_resuelto')
+            ->pluck('curso_resuelto')->toArray();
+    }
+
+    /** Tutores presentes en las encuestas (para el dropdown del filtro). */
+    protected function getTutoresDisponibles(): array
+    {
+        $ids = EncuestaCalidad::query()->whereNotNull('tutor_id')->distinct()->pluck('tutor_id');
+
+        return Tutor::whereIn('id', $ids)->orderBy('nombre')->get()
+            ->mapWithKeys(fn ($t) => [$t->id => trim("{$t->nombre} {$t->apellido1}")])
             ->toArray();
     }
 
@@ -256,11 +386,15 @@ class EncuestasCalidadIndex extends Component
     public function render()
     {
         return view('livewire.webcurso.encuestas-calidad-index', [
-            'encuestas'        => $this->getEncuestas(),
-            'stats'            => $this->getEstadisticas(),
-            'peorValorados'    => $this->getRanking('asc'),
-            'mejorValorados'   => $this->getRanking('desc'),
-            'aniosDisponibles' => $this->getAniosDisponibles(),
+            'encuestas'          => $this->getEncuestas(),
+            'stats'              => $this->getEstadisticas(),
+            'distribucion'       => $this->getDistribucion(),
+            'porCurso'           => $this->getEstadisticasPorCurso(),
+            'porTutor'           => $this->getMediaPorTutor(),
+            'porBloque'          => $this->getMediasPorBloque(),
+            'aniosDisponibles'   => $this->getAniosDisponibles(),
+            'cursosDisponibles'  => $this->getCursosDisponibles(),
+            'tutoresDisponibles' => $this->getTutoresDisponibles(),
         ])->layout('layouts.app', ['title' => 'Encuestas de Calidad - WebCurso']);
     }
 }
