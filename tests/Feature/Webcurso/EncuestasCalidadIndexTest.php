@@ -66,17 +66,71 @@ it('abre el historial de cursos del alumno desde el nombre', function () {
         ->assertSee('Curso de Prueba');
 });
 
-it('los rankings agrupan por curso resuelto y exigen mínimo 3 respuestas', function () {
-    // Curso A: media 4 (3 respuestas) · Curso B: media 1 (3 respuestas)
+it('la tabla por curso agrupa por curso resuelto, calcula media y honra el mínimo de 3', function () {
     foreach ([4, 4, 4] as $s) { crearEncuesta(['curso_resuelto' => 'Curso A', 'satisfaccion_general' => $s]); }
     foreach ([1, 1, 1] as $s) { crearEncuesta(['curso_resuelto' => 'Curso B', 'satisfaccion_general' => $s]); }
-    // Curso C: solo 2 respuestas → excluido del ranking
-    foreach ([2, 2] as $s) { crearEncuesta(['curso_resuelto' => 'Curso C', 'satisfaccion_general' => $s]); }
+    foreach ([2, 2] as $s)    { crearEncuesta(['curso_resuelto' => 'Curso C', 'satisfaccion_general' => $s]); } // solo 2 → excluido
 
     Livewire::test(EncuestasCalidadIndex::class)
-        ->assertViewHas('mejorValorados', fn ($r) => $r[0]['curso_resuelto'] === 'Curso A')
-        ->assertViewHas('peorValorados', fn ($r) => $r[0]['curso_resuelto'] === 'Curso B')
-        ->assertViewHas('mejorValorados', fn ($r) => collect($r)->pluck('curso_resuelto')->doesntContain('Curso C'));
+        // Orden por defecto media desc → Curso A primero; Curso C excluido (minRespuestas)
+        ->assertViewHas('porCurso', function ($r) {
+            return $r[0]['curso_resuelto'] === 'Curso A'
+                && (int) $r[0]['n4'] === 3
+                && collect($r)->pluck('curso_resuelto')->doesntContain('Curso C');
+        })
+        ->set('ordenCurso', 'media_asc')
+        ->assertViewHas('porCurso', fn ($r) => $r[0]['curso_resuelto'] === 'Curso B')
+        ->set('minRespuestas', false)
+        ->assertViewHas('porCurso', fn ($r) => collect($r)->pluck('curso_resuelto')->contains('Curso C'));
+});
+
+it('el filtro de curso busca por curso_resuelto y verCurso lo activa', function () {
+    crearEncuesta(['curso_resuelto' => 'Alfa Excel', 'alumno_nombre' => 'Ana', 'satisfaccion_general' => 4]);
+    crearEncuesta(['curso_resuelto' => 'Beta Word', 'alumno_nombre' => 'Beto', 'satisfaccion_general' => 3]);
+
+    Livewire::test(EncuestasCalidadIndex::class)
+        ->set('minRespuestas', false) // cada curso tiene 1 respuesta en este test
+        ->set('filtroCurso', 'Alfa')
+        ->assertViewHas('porCurso', fn ($r) => count($r) === 1 && $r[0]['curso_resuelto'] === 'Alfa Excel')
+        ->assertSee('Ana')
+        ->assertDontSee('Beto')
+        // verCurso desde la tabla
+        ->call('verCurso', 'Beta Word')
+        ->assertSet('filtroCurso', 'Beta Word')
+        ->assertSee('Beto')
+        ->assertDontSee('Ana');
+});
+
+it('calcula la distribución global 1-4 con porcentajes', function () {
+    crearEncuesta(['satisfaccion_general' => 4]);
+    crearEncuesta(['satisfaccion_general' => 4]);
+    crearEncuesta(['satisfaccion_general' => 2]);
+    crearEncuesta(['satisfaccion_general' => 1]);
+
+    Livewire::test(EncuestasCalidadIndex::class)
+        ->assertViewHas('distribucion', function ($d) {
+            return $d['total'] === 4 && $d[4]['n'] === 2 && $d[4]['pct'] === 50.0 && $d[1]['n'] === 1;
+        });
+});
+
+it('calcula las medias por bloque FUNDAE sin truncar los decimales', function () {
+    // Bloque "organizacion" = item_01 + item_02. Medias: item_01=(4+3)/2=3.5, item_02=(4+4)/2=4 → bloque=3.75
+    crearEncuesta(['satisfaccion_general' => 4, 'item_01' => 4, 'item_02' => 4]);
+    crearEncuesta(['satisfaccion_general' => 3, 'item_01' => 3, 'item_02' => 4]);
+
+    Livewire::test(EncuestasCalidadIndex::class)
+        ->assertViewHas('porBloque', function ($b) {
+            $org = collect($b)->firstWhere('label', 'Organización');
+            return $org && abs($org['media'] - 3.75) < 0.01; // no truncado a 3
+        });
+});
+
+it('calcula la media por tutor (cursos con tutor asignado, ≥3)', function () {
+    $tutor = \App\Models\Tutor::factory()->create(['nombre' => 'Raquel', 'apellido1' => 'García']);
+    foreach ([4, 4, 3] as $s) { crearEncuesta(['tutor_id' => $tutor->id, 'satisfaccion_general' => $s]); }
+
+    Livewire::test(EncuestasCalidadIndex::class)
+        ->assertViewHas('porTutor', fn ($r) => count($r) === 1 && str_contains($r[0]['tutor'], 'Raquel') && $r[0]['respuestas'] === 3);
 });
 
 it('exporta el listado filtrado a Excel', function () {

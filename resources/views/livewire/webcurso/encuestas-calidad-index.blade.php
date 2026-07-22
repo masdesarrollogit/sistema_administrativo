@@ -54,41 +54,32 @@
             </div>
         </div>
 
-        {{-- ─── Rankings de cursos ─── --}}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-            <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-                <h3 class="text-sm font-semibold text-green-700 mb-3">🏆 Cursos mejor valorados {{ $filtroAno ? "($filtroAno)" : '' }}</h3>
-                @forelse($mejorValorados as $r)
-                    <div class="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                        <span class="text-sm text-gray-700 truncate pr-2">{{ $r['curso_resuelto'] }}</span>
-                        <span class="flex items-center gap-2 flex-shrink-0">
-                            <span class="text-xs text-gray-400">{{ $r['respuestas'] }}</span>
-                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">{{ number_format($r['media'], 2) }}</span>
-                        </span>
-                    </div>
-                @empty
-                    <p class="text-xs text-gray-400">Sin datos suficientes (mín. 3 respuestas por curso).</p>
-                @endforelse
-            </div>
-            <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-                <h3 class="text-sm font-semibold text-red-700 mb-3">⚠️ Cursos peor valorados {{ $filtroAno ? "($filtroAno)" : '' }}</h3>
-                @forelse($peorValorados as $r)
-                    <div class="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                        <span class="text-sm text-gray-700 truncate pr-2">{{ $r['curso_resuelto'] }}</span>
-                        <span class="flex items-center gap-2 flex-shrink-0">
-                            <span class="text-xs text-gray-400">{{ $r['respuestas'] }}</span>
-                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">{{ number_format($r['media'], 2) }}</span>
-                        </span>
-                    </div>
-                @empty
-                    <p class="text-xs text-gray-400">Sin datos suficientes (mín. 3 respuestas por curso).</p>
-                @endforelse
-            </div>
+        {{-- ─── Distribución global 1-4 ─── --}}
+        <div class="bg-white rounded-xl shadow-sm p-4 mb-6 border border-gray-100">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">Distribución de calificaciones @if($distribucion['total']) <span class="text-gray-400 font-normal">· {{ number_format($distribucion['total']) }} respuestas</span>@endif</h3>
+            @if($distribucion['total'] > 0)
+                <div class="flex w-full h-6 rounded-lg overflow-hidden mb-2">
+                    @foreach([1=>'bg-red-400',2=>'bg-amber-400',3=>'bg-blue-400',4=>'bg-green-500'] as $n => $c)
+                        @if($distribucion[$n]['pct'] > 0)
+                            <div class="{{ $c }} flex items-center justify-center text-[10px] text-white font-semibold" style="width: {{ $distribucion[$n]['pct'] }}%" title="Nota {{ $n }}: {{ $distribucion[$n]['n'] }} ({{ $distribucion[$n]['pct'] }}%)">
+                                {{ $distribucion[$n]['pct'] >= 6 ? $distribucion[$n]['pct'].'%' : '' }}
+                            </div>
+                        @endif
+                    @endforeach
+                </div>
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    @foreach([1=>'🔴',2=>'🟠',3=>'🔵',4=>'🟢'] as $n => $ic)
+                        <span>{{ $ic }} Nota {{ $n }}: <strong>{{ number_format($distribucion[$n]['n']) }}</strong> ({{ $distribucion[$n]['pct'] }}%)</span>
+                    @endforeach
+                </div>
+            @else
+                <p class="text-xs text-gray-400">Sin datos con los filtros actuales.</p>
+            @endif
         </div>
 
         {{-- ─── Filtros ─── --}}
         <div class="bg-white rounded-xl shadow-sm p-4 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <select wire:model.live="filtroAno" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                     <option value="">Todos los años</option>
                     @foreach($aniosDisponibles as $y)
@@ -103,23 +94,158 @@
                     <option value="menos3">🔴 Menos de 3 (a mejorar)</option>
                 </select>
 
-                <input type="text" wire:model.live.debounce.300ms="filtroAccion"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Curso / Nº acción...">
+                {{-- Buscar por curso (curso_resuelto) con autocompletado --}}
+                <input type="text" list="cursosLista" wire:model.live.debounce.300ms="filtroCurso"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="🎓 Buscar curso...">
+                <datalist id="cursosLista">
+                    @foreach($cursosDisponibles as $c)
+                        <option value="{{ $c }}"></option>
+                    @endforeach
+                </datalist>
+
+                <select wire:model.live="filtroTipoCurso" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Todos los tipos</option>
+                    <option value="fundae">FUNDAE</option>
+                    <option value="legacy">Legacy</option>
+                    <option value="autonomo">Autónomo</option>
+                    <option value="bonificado">Bonificado</option>
+                </select>
+
+                <select wire:model.live="filtroTutor" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                    <option value="">Todos los tutores</option>
+                    @foreach($tutoresDisponibles as $id => $nombre)
+                        <option value="{{ $id }}">{{ $nombre }}</option>
+                    @endforeach
+                </select>
+
+                <input type="text" wire:model.live.debounce.300ms="filtroEmpresa"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="🏢 CIF empresa...">
 
                 <input type="text" wire:model.live.debounce.300ms="search"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="Nombre o email...">
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="👤 Nombre o email...">
+            </div>
 
-                <select wire:model.live="orden" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 items-center">
+                <label class="text-xs text-gray-500 flex flex-col gap-1">Desde
+                    <input type="date" wire:model.live="filtroDesde" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                </label>
+                <label class="text-xs text-gray-500 flex flex-col gap-1">Hasta
+                    <input type="date" wire:model.live="filtroHasta" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                </label>
+
+                <select wire:model.live="orden" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm self-end">
                     <option value="desc">Nota: mayor → menor</option>
                     <option value="asc">Nota: menor → mayor</option>
                 </select>
 
-                <button wire:click="limpiarFiltros" class="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm">🗑️ Limpiar</button>
+                <button wire:click="limpiarFiltros" class="w-full px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 text-sm self-end">🗑️ Limpiar filtros</button>
             </div>
+
             <label class="inline-flex items-center gap-2 mt-3 text-sm text-gray-600 cursor-pointer">
                 <input type="checkbox" wire:model.live="soloObservaciones" class="rounded border-gray-300 text-indigo-600">
                 Solo respuestas con observación
             </label>
+            @if($filtroCurso)
+                <span class="ml-3 inline-flex items-center gap-1 text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full">
+                    🎓 {{ $filtroCurso }} <button wire:click="$set('filtroCurso','')" class="font-bold">×</button>
+                </span>
+            @endif
+        </div>
+
+        {{-- ─── Estadísticas por curso ─── --}}
+        <div class="bg-white rounded-xl shadow-sm mb-6 border border-gray-100">
+            <div class="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-semibold text-gray-700">📊 Media por curso <span class="text-gray-400 font-normal">({{ count($porCurso) }} cursos)</span></h3>
+                <div class="flex items-center gap-2">
+                    <select wire:model.live="ordenCurso" class="px-2 py-1 border border-gray-300 rounded text-xs">
+                        <option value="media_desc">Mejor media primero</option>
+                        <option value="media_asc">Peor media primero</option>
+                        <option value="respuestas">Más respuestas</option>
+                        <option value="nombre">Nombre (A-Z)</option>
+                    </select>
+                    <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
+                        <input type="checkbox" wire:model.live="minRespuestas" class="rounded border-gray-300 text-indigo-600">
+                        Solo ≥3 respuestas
+                    </label>
+                </div>
+            </div>
+            <div class="overflow-x-auto" style="max-height: 24rem;">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 sticky top-0">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Curso</th>
+                            <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Respuestas</th>
+                            <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Media</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Distribución 1·2·3·4</th>
+                            <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">% Exc. (4)</th>
+                            <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">% &lt;3</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        @forelse($porCurso as $c)
+                            @php
+                                [$tLabel, $tClass] = $tipoCurso($c['curso_tipo']);
+                                $resp = (int) $c['respuestas'];
+                                $pct4 = $resp ? round($c['n4'] * 100 / $resp) : 0;
+                                $pctBajo = $resp ? round(($c['n1'] + $c['n2']) * 100 / $resp) : 0;
+                            @endphp
+                            <tr class="hover:bg-indigo-50/40 cursor-pointer" wire:click="verCurso(@js($c['curso_resuelto']))">
+                                <td class="px-4 py-2">
+                                    <span class="text-sm text-gray-800">{{ $c['curso_resuelto'] }}</span>
+                                    @if($tLabel)<span class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold {{ $tClass }}">{{ $tLabel }}</span>@endif
+                                </td>
+                                <td class="px-4 py-2 text-center text-sm text-gray-600">{{ $resp }}</td>
+                                <td class="px-4 py-2 text-center">
+                                    <span class="px-2 py-0.5 rounded-full text-xs font-bold {{ $badge(round($c['media'])) }}">{{ number_format($c['media'], 2) }}</span>
+                                </td>
+                                <td class="px-4 py-2">
+                                    <div class="flex w-32 h-3 rounded overflow-hidden bg-gray-100" title="1:{{ $c['n1'] }} 2:{{ $c['n2'] }} 3:{{ $c['n3'] }} 4:{{ $c['n4'] }}">
+                                        @foreach(['n1'=>'bg-red-400','n2'=>'bg-amber-400','n3'=>'bg-blue-400','n4'=>'bg-green-500'] as $k => $col)
+                                            @if($c[$k] > 0)<div class="{{ $col }}" style="width: {{ round($c[$k]*100/$resp) }}%"></div>@endif
+                                        @endforeach
+                                    </div>
+                                    <span class="text-[10px] text-gray-400">{{ $c['n1'] }}·{{ $c['n2'] }}·{{ $c['n3'] }}·{{ $c['n4'] }}</span>
+                                </td>
+                                <td class="px-4 py-2 text-center text-sm text-green-700 font-semibold">{{ $pct4 }}%</td>
+                                <td class="px-4 py-2 text-center text-sm {{ $pctBajo >= 25 ? 'text-red-600 font-semibold' : 'text-gray-500' }}">{{ $pctBajo }}%</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400 text-sm">Sin cursos con los filtros actuales{{ $minRespuestas ? ' (probá desmarcar "Solo ≥3 respuestas")' : '' }}.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {{-- ─── Media por tutor + Medias por bloque FUNDAE ─── --}}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">👨‍🏫 Media por tutor <span class="text-gray-400 font-normal text-xs">(cursos FUNDAE con tutor, ≥3)</span></h3>
+                @forelse($porTutor as $t)
+                    <div class="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                        <span class="text-sm text-gray-700 truncate pr-2">{{ $t['tutor'] }}</span>
+                        <span class="flex items-center gap-2 flex-shrink-0">
+                            <span class="text-xs text-gray-400">{{ $t['respuestas'] }}</span>
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold {{ $badge(round($t['media'])) }}">{{ number_format($t['media'], 2) }}</span>
+                        </span>
+                    </div>
+                @empty
+                    <p class="text-xs text-gray-400">Sin datos (pocas encuestas resolvieron a un grupo FUNDAE con tutor).</p>
+                @endforelse
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">🧩 Medias por bloque FUNDAE</h3>
+                @foreach($porBloque as $b)
+                    <div class="flex items-center gap-2 py-1">
+                        <span class="text-sm text-gray-700 w-40 flex-shrink-0 truncate">{{ $b['label'] }}</span>
+                        <div class="flex-grow h-2 bg-gray-100 rounded overflow-hidden">
+                            <div class="h-2 {{ $b['media'] >= 3.5 ? 'bg-green-500' : ($b['media'] >= 2.5 ? 'bg-blue-400' : 'bg-amber-400') }}" style="width: {{ $b['media'] ? round($b['media']*25) : 0 }}%"></div>
+                        </div>
+                        <span class="text-xs font-semibold text-gray-600 w-10 text-right">{{ $b['media'] !== null ? number_format($b['media'], 2) : '—' }}</span>
+                    </div>
+                @endforeach
+            </div>
         </div>
 
         {{-- ─── Tabla ─── --}}
