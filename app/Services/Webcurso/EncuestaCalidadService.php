@@ -6,6 +6,7 @@ use App\Models\AccionFormativa;
 use App\Models\Alumno;
 use App\Models\EncuestaCalidad;
 use App\Models\GrupoFormativo;
+use App\Models\MoodleMatriculaIndex;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -523,6 +524,136 @@ class EncuestaCalidadService
         });
 
         return $dentro[0];
+    }
+
+    /**
+     * Resuelve el curso de una encuesta consultando el ÍNDICE de matrículas de
+     * Moodle (`moodle_matricula_index`, poblado por `encuestas-calidad:snapshot-moodle`).
+     *
+     * Es el respaldo cuando la resolución local del Panel (4 fuentes) no encuentra
+     * curso. El índice incluye matrículas caducadas (alumnos que ya terminaron),
+     * que la API directa oculta. NO recupera matrículas que Moodle haya ELIMINADO.
+     *
+     * @return array|null  campos curso_* (curso_tipo='moodle', curso_origen='moodle_api') o null.
+     */
+    public function resolverCursoDesdeIndiceMoodle(?string $email, ?Carbon $fecha, ?string $textoDenom = null): ?array
+    {
+        $email = $email ? mb_strtolower(trim($email)) : '';
+        if ($email === '' || $email === 'anonymous') {
+            return null;
+        }
+
+        $filas = \App\Models\MoodleMatriculaIndex::where('email', $email)->get();
+        if ($filas->isEmpty()) {
+            return null;
+        }
+
+        $margen         = (int) config('encuesta_calidad.moodle_margen_dias', 15);
+        $ventanaAcceso  = (int) config('encuesta_calidad.moodle_ventana_acceso_dias', 45);
+
+        // ── CRITERIO PRINCIPAL: último acceso del alumno a ESE curso ──────────────
+        // `ultimo_acceso` (lastcourseaccess) es por alumno+curso y con fecha real, así
+        // que descarta los cursos-contenedor (fecha de curso 2011, sin fin) a los que
+        // el alumno no entró de verdad. Se elige el curso cuyo último acceso esté más
+        // cerca de la fecha de la encuesta (que se rellena al terminar).
+        if ($fecha) {
+            $cercanos = $filas
+                ->filter(fn ($f) => $f->ultimo_acceso !== null)
+                ->map(fn ($f) => ['f' => $f, 'delta' => abs($f->ultimo_acceso->diffInDays($fecha, false))])
+                ->filter(fn ($x) => $x['delta'] <= $ventanaAcceso)
+                ->sortBy('delta')
+                ->values();
+
+            if ($cercanos->isNotEmpty()) {
+                // A igualdad de días, preferir mayor coincidencia de texto.
+                $minDelta = $cercanos->first()['delta'];
+                $empatados = $cercanos->filter(fn ($x) => $x['delta'] === $minDelta)->pluck('f');
+                $elegido = $empatados->sortByDesc(fn ($f) => $this->scoreTexto($textoDenom, $f->curso_fullname))->first();
+                return $this->armarCursoIndice($elegido);
+            }
+        }
+
+        // ── CRITERIO SECUNDARIO: ventana [inicio, fin] del curso ─────────────────
+        $dentro = $fecha
+            ? $filas->filter(function ($f) use ($fecha, $margen) {
+                $ini = $f->curso_startdate?->copy()->subDays($margen);
+                $fin = $f->curso_enddate?->copy()->addDays($margen);
+                if ($ini && $fin) {
+                    return $fecha->betweenIncluded($ini, $fin);
+                }
+                if ($ini && !$fin) {
+                    return $fecha->greaterThanOrEqualTo($ini);
+                }
+                if (!$ini && $fin) {
+                    return $fecha->lessThanOrEqualTo($fin);
+                }
+                return false; // sin fechas de curso no podemos ubicar por fecha
+            })->values()
+            : collect();
+
+        // Conjunto sobre el que elegir: los que encajan por fecha; si ninguno encaja
+        // pero solo hay un curso, ese; si hay varios sin encaje de fecha, ambiguo → null.
+        if ($dentro->isNotEmpty()) {
+            $candidatos = $dentro;
+        } elseif ($filas->count() === 1) {
+            $candidatos = $filas;
+        } else {
+            // Varios cursos y ninguno encaja por fecha: intentar desempate por texto.
+            $porTexto = $filas->sortByDesc(fn ($f) => $this->scoreTexto($textoDenom, $f->curso_fullname))->values();
+            if ($this->scoreTexto($textoDenom, $porTexto[0]->curso_fullname) > 0) {
+                $candidatos = collect([$porTexto[0]]);
+            } else {
+                return null; // ambiguo, no arriesgamos
+            }
+        }
+
+        // Desempate: (1) mayor coincidencia de texto de denominación, (2) ventana más
+        // ajustada (curso más corto suele ser el real y no un contenedor anual).
+        $elegido = $candidatos->sort(function ($a, $b) use ($textoDenom) {
+            $sa = $this->scoreTexto($textoDenom, $a->curso_fullname);
+            $sb = $this->scoreTexto($textoDenom, $b->curso_fullname);
+            if ($sa !== $sb) {
+                return $sb <=> $sa;
+            }
+            $spanA = ($a->curso_startdate && $a->curso_enddate) ? $a->curso_startdate->diffInDays($a->curso_enddate) : PHP_INT_MAX;
+            $spanB = ($b->curso_startdate && $b->curso_enddate) ? $b->curso_startdate->diffInDays($b->curso_enddate) : PHP_INT_MAX;
+            return $spanA <=> $spanB;
+        })->first();
+
+        return $this->armarCursoIndice($elegido);
+    }
+
+    /** Construye el array de campos curso_* a partir de una fila del índice Moodle. */
+    protected function armarCursoIndice(MoodleMatriculaIndex $elegido): array
+    {
+        return [
+            'grupo_formativo_id'  => null,
+            'accion_formativa_id' => null,
+            'tutor_id'            => null,
+            'tutor_label'         => $elegido->tutor_label,
+            'curso_resuelto'      => $elegido->curso_fullname,
+            'curso_tipo'          => 'moodle',
+            'curso_fecha_inicio'  => $elegido->curso_startdate,
+            'curso_fecha_fin'     => $elegido->curso_enddate,
+            'curso_origen'        => 'moodle_api',
+        ];
+    }
+
+    /**
+     * Etiqueta de tutor para una encuesta YA resuelta vía Moodle, a partir de su
+     * email + nombre de curso (para rellenar las resueltas antes de tener tutor).
+     */
+    public function etiquetaTutorDesdeIndice(?string $email, ?string $cursoFullname): ?string
+    {
+        $email = $email ? mb_strtolower(trim($email)) : '';
+        if ($email === '' || !$cursoFullname) {
+            return null;
+        }
+
+        return MoodleMatriculaIndex::where('email', $email)
+            ->where('curso_fullname', $cursoFullname)
+            ->whereNotNull('tutor_label')
+            ->value('tutor_label');
     }
 
     /**

@@ -16,6 +16,7 @@
         'autonomo'   => ['Autónomo', 'bg-amber-100 text-amber-700'],
         'bonificado' => ['Bonificado', 'bg-emerald-100 text-emerald-700'],
         'legacy'     => ['Legacy', 'bg-violet-100 text-violet-700'],
+        'moodle'     => ['Moodle', 'bg-sky-100 text-sky-700'],
         default      => [null, ''],
     };
 @endphp
@@ -109,12 +110,13 @@
                     <option value="legacy">Legacy</option>
                     <option value="autonomo">Autónomo</option>
                     <option value="bonificado">Bonificado</option>
+                    <option value="moodle">Moodle</option>
                 </select>
 
                 <select wire:model.live="filtroTutor" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                     <option value="">Todos los tutores</option>
-                    @foreach($tutoresDisponibles as $id => $nombre)
-                        <option value="{{ $id }}">{{ $nombre }}</option>
+                    @foreach($tutoresDisponibles as $etiquetaTutor)
+                        <option value="{{ $etiquetaTutor }}">{{ $etiquetaTutor }}</option>
                     @endforeach
                 </select>
 
@@ -217,36 +219,23 @@
             </div>
         </div>
 
-        {{-- ─── Media por tutor + Medias por bloque FUNDAE ─── --}}
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-            <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-                <h3 class="text-sm font-semibold text-gray-700 mb-3">👨‍🏫 Media por tutor <span class="text-gray-400 font-normal text-xs">(cursos FUNDAE con tutor, ≥3)</span></h3>
-                @forelse($porTutor as $t)
-                    <div class="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                        <span class="text-sm text-gray-700 truncate pr-2">{{ $t['tutor'] }}</span>
-                        <span class="flex items-center gap-2 flex-shrink-0">
-                            <span class="text-xs text-gray-400">{{ $t['respuestas'] }}</span>
-                            <span class="px-2 py-0.5 rounded-full text-xs font-bold {{ $badge(round($t['media'])) }}">{{ number_format($t['media'], 2) }}</span>
-                        </span>
-                    </div>
-                @empty
-                    <p class="text-xs text-gray-400">Sin datos (pocas encuestas resolvieron a un grupo FUNDAE con tutor).</p>
-                @endforelse
-            </div>
-
-            <div class="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-                <h3 class="text-sm font-semibold text-gray-700 mb-3">🧩 Medias por bloque FUNDAE</h3>
-                @foreach($porBloque as $b)
-                    <div class="flex items-center gap-2 py-1">
-                        <span class="text-sm text-gray-700 w-40 flex-shrink-0 truncate">{{ $b['label'] }}</span>
-                        <div class="flex-grow h-2 bg-gray-100 rounded overflow-hidden">
-                            <div class="h-2 {{ $b['media'] >= 3.5 ? 'bg-green-500' : ($b['media'] >= 2.5 ? 'bg-blue-400' : 'bg-amber-400') }}" style="width: {{ $b['media'] ? round($b['media']*25) : 0 }}%"></div>
+        {{-- ─── Valoración por bloques FUNDAE del curso enfocado ─── --}}
+        @if($filtroCurso && count($porBloque))
+            <div class="bg-white rounded-xl shadow-sm p-4 mb-6 border border-indigo-100">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3">🧩 Valoración por bloques FUNDAE · <span class="text-indigo-700">{{ $filtroCurso }}</span></h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-1">
+                    @foreach($porBloque as $b)
+                        <div class="flex items-center gap-3 py-1 pr-2">
+                            <span class="text-sm text-gray-700 w-44 flex-shrink-0 truncate">{{ $b['label'] }}</span>
+                            <div class="flex-grow h-2 bg-gray-100 rounded overflow-hidden">
+                                <div class="h-2 {{ $b['media'] >= 3.5 ? 'bg-green-500' : ($b['media'] >= 2.5 ? 'bg-blue-400' : 'bg-amber-400') }}" style="width: {{ $b['media'] ? round($b['media']*25) : 0 }}%"></div>
+                            </div>
+                            <span class="text-xs font-semibold text-gray-600 w-12 flex-shrink-0 text-right tabular-nums">{{ $b['media'] !== null ? number_format($b['media'], 2) : '—' }}</span>
                         </div>
-                        <span class="text-xs font-semibold text-gray-600 w-10 text-right">{{ $b['media'] !== null ? number_format($b['media'], 2) : '—' }}</span>
-                    </div>
-                @endforeach
+                    @endforeach
+                </div>
             </div>
-        </div>
+        @endif
 
         {{-- ─── Tabla ─── --}}
         <div class="bg-white rounded-xl shadow-sm overflow-hidden">
@@ -271,6 +260,12 @@
                     </select>
                 </div>
             </div>
+
+            @if($mensajeMoodle)
+                <div class="mb-3 px-4 py-2 rounded-lg text-sm {{ $mensajeMoodleTipo === 'ok' ? 'bg-sky-50 text-sky-800 border border-sky-200' : 'bg-amber-50 text-amber-800 border border-amber-200' }}">
+                    {{ $mensajeMoodle }}
+                </div>
+            @endif
 
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
@@ -320,9 +315,11 @@
                                         @if($tLabel)
                                             <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold {{ $tClass }}">{{ $tLabel }}</span>
                                         @endif
-                                        @if($e->numero_accion || $e->numero_grupo)
+                                        {{-- Píldora acción/grupo FUNDAE: solo cuando son identificadores numéricos reales
+                                             (el Form a veces trae texto en numero_grupo, p.ej. una categoría profesional). --}}
+                                        @if(is_numeric($e->numero_accion))
                                             <span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-mono font-semibold">
-                                                {{ $e->numero_accion ?: '?' }}/{{ $e->numero_grupo ?: '?' }}
+                                                {{ $e->numero_accion }}@if(is_numeric($e->numero_grupo))/{{ $e->numero_grupo }}@endif
                                             </span>
                                         @endif
                                     </div>
@@ -330,6 +327,20 @@
                                         <div class="text-[11px] text-gray-400 mt-0.5">
                                             {{ $e->curso_fecha_inicio->format('d/m/y') }} – {{ $e->curso_fecha_fin->format('d/m/y') }}
                                         </div>
+                                    @endif
+                                    @if(filled($e->tutor_label))
+                                        <div class="text-[11px] text-gray-500 mt-0.5">👤 {{ $e->tutor_label }}</div>
+                                    @endif
+                                    @if(blank($e->curso_resuelto) && filled($e->alumno_email))
+                                        <button type="button" wire:click="resolverEnMoodle({{ $e->id }})"
+                                                wire:loading.attr="disabled" wire:target="resolverEnMoodle({{ $e->id }})"
+                                                class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100 disabled:opacity-50"
+                                                title="Buscar el curso en Moodle por el email del alumno">
+                                            🔍 Buscar en Moodle
+                                        </button>
+                                        @if($e->curso_origen === 'moodle_sin_match')
+                                            <span class="ml-1 text-[10px] text-gray-400">sin match en Moodle</span>
+                                        @endif
                                     @endif
                                 </td>
                                 {{-- Fecha --}}

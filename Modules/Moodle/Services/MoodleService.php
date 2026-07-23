@@ -299,6 +299,43 @@ class MoodleService
     }
 
     /**
+     * Listar todos los cursos del sitio con sus datos básicos (id, fullname,
+     * categoryid, startdate, enddate). Usa core_course_get_courses_by_field sin
+     * criterio (devuelve todos).
+     *
+     * @return array Lista de cursos
+     */
+    public function getCoursesBasic(): array
+    {
+        $result = $this->call('core_course_get_courses_by_field', []);
+
+        return $result['courses'] ?? [];
+    }
+
+    /**
+     * Usuarios matriculados en un curso, INCLUYENDO matrículas caducadas/suspendidas.
+     *
+     * `onlyactive=0` es la clave: a diferencia de core_enrol_get_users_courses (que
+     * oculta las matrículas caducadas), esta función devuelve también a los alumnos
+     * que ya terminaron el curso. `userfields` recorta la respuesta a lo imprescindible.
+     *
+     * @param string[] $userfields Campos de usuario a devolver
+     * @return array Lista de usuarios (cada uno con las claves de $userfields)
+     */
+    public function getEnrolledUsersBasic(int $courseId, array $userfields = ['id', 'email', 'lastcourseaccess']): array
+    {
+        $params = [
+            'courseid'          => $courseId,
+            'options[0][name]'  => 'onlyactive', 'options[0][value]' => '0',
+            'options[1][name]'  => 'userfields', 'options[1][value]' => implode(',', $userfields),
+        ];
+
+        $result = $this->call('core_enrol_get_enrolled_users', $params);
+
+        return is_array($result) ? $result : [];
+    }
+
+    /**
      * Verificar que la conexión con Moodle funciona.
      */
     public function testConnection(): bool

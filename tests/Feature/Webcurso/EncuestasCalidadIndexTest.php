@@ -113,24 +113,21 @@ it('calcula la distribución global 1-4 con porcentajes', function () {
         });
 });
 
-it('calcula las medias por bloque FUNDAE sin truncar los decimales', function () {
-    // Bloque "organizacion" = item_01 + item_02. Medias: item_01=(4+3)/2=3.5, item_02=(4+4)/2=4 → bloque=3.75
-    crearEncuesta(['satisfaccion_general' => 4, 'item_01' => 4, 'item_02' => 4]);
-    crearEncuesta(['satisfaccion_general' => 3, 'item_01' => 3, 'item_02' => 4]);
+it('muestra las medias por bloque solo cuando hay un curso enfocado', function () {
+    // Bloque "Organización" = item_01 + item_02. Medias: item_01=(4+3)/2=3.5, item_02=4 → 3.75
+    crearEncuesta(['curso_resuelto' => 'Excel Pro', 'satisfaccion_general' => 4, 'item_01' => 4, 'item_02' => 4]);
+    crearEncuesta(['curso_resuelto' => 'Excel Pro', 'satisfaccion_general' => 3, 'item_01' => 3, 'item_02' => 4]);
 
     Livewire::test(EncuestasCalidadIndex::class)
+        // Sin curso enfocado → sin desglose por bloques
+        ->assertViewHas('porBloque', fn ($b) => $b === [])
+        // Al enfocar el curso → aparece su desglose por bloque con decimales
+        ->call('verCurso', 'Excel Pro')
         ->assertViewHas('porBloque', function ($b) {
             $org = collect($b)->firstWhere('label', 'Organización');
-            return $org && abs($org['media'] - 3.75) < 0.01; // no truncado a 3
-        });
-});
-
-it('calcula la media por tutor (cursos con tutor asignado, ≥3)', function () {
-    $tutor = \App\Models\Tutor::factory()->create(['nombre' => 'Raquel', 'apellido1' => 'García']);
-    foreach ([4, 4, 3] as $s) { crearEncuesta(['tutor_id' => $tutor->id, 'satisfaccion_general' => $s]); }
-
-    Livewire::test(EncuestasCalidadIndex::class)
-        ->assertViewHas('porTutor', fn ($r) => count($r) === 1 && str_contains($r[0]['tutor'], 'Raquel') && $r[0]['respuestas'] === 3);
+            return $org && abs($org['media'] - 3.75) < 0.01;
+        })
+        ->assertSee('Valoración por bloques');
 });
 
 it('exporta el listado filtrado a Excel', function () {

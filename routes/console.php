@@ -136,3 +136,14 @@ Schedule::command('encuestas-calidad:leer-imap')
     ->onFailure(function () {
         \Log::error('Error al ejecutar el cron de lectura IMAP de encuestas de calidad');
     });
+
+// Índice inverso email→cursos de Moodle (incl. matrículas caducadas) para poder
+// resolver el curso de encuestas de calidad de alumnos sin ficha/curso en el Panel.
+// Diario de madrugada; el backfill (encuestas-calidad:resolver-moodle) se lanza aparte.
+Schedule::command('encuestas-calidad:snapshot-moodle')
+    ->dailyAt(config('encuesta_calidad.snapshot_moodle_hora', '03:30'))
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        \Log::error('Error al ejecutar el snapshot del índice de matrículas Moodle (encuestas de calidad)');
+    });

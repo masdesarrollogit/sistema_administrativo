@@ -29,6 +29,43 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Resolución del curso vía Moodle (respaldo por webservice)
+    |--------------------------------------------------------------------------
+    | Cuando el Panel no encuentra el curso de una encuesta (ni por Nº Acción ni
+    | por las 4 fuentes del alumno), se cruza el email contra el índice de
+    | matrículas de Moodle (`moodle_matricula_index`, poblado por
+    | `encuestas-calidad:snapshot-moodle`). Solo webservice, sin tocar la BD.
+    | `moodle_margen_dias`: holgura al comparar la fecha de la encuesta con la
+    | ventana [inicio, fin] del curso de Moodle.
+    */
+    'moodle_resolucion_enabled' => env('ENCUESTA_CALIDAD_MOODLE_RESOLUCION', true),
+    'moodle_margen_dias'        => (int) env('ENCUESTA_CALIDAD_MOODLE_MARGEN_DIAS', 15),
+    // Criterio principal: el curso cuyo último acceso del alumno cae a <= N días de
+    // la fecha de la encuesta (la encuesta se rellena al terminar el curso).
+    'moodle_ventana_acceso_dias' => (int) env('ENCUESTA_CALIDAD_MOODLE_VENTANA_ACCESO', 45),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Clasificación por tutor (profesor real del curso en Moodle)
+    |--------------------------------------------------------------------------
+    | El snapshot lee el profesor de cada curso (core_enrol_get_enrolled_users
+    | withcapability moodle/course:update) y lo mapea por `moodle_username`.
+    | Álvaro y Raquel COMPARTEN aula → a nivel de curso solo se distingue "David
+    | Guerra" (aula propia) del bucket conjunto "Álvaro Pino / Raquel García".
+    | `moodle_tutor_usernames`: username Moodle → nombre del tutor.
+    | `moodle_tutor_label_compartida`: etiqueta cuando el aula es de Álvaro/Raquel.
+    */
+    'moodle_tutor_usernames' => [
+        'tutorwebcurso@gmail.com' => 'David Guerra',
+        'tutoralvarop'            => 'Álvaro Pino',
+        'traquelg'                => 'Raquel García',
+    ],
+    // Tutores que comparten aula (no separables a nivel de curso) → etiqueta conjunta.
+    'moodle_tutores_compartidos'    => ['Álvaro Pino', 'Raquel García'],
+    'moodle_tutor_label_compartida' => 'Álvaro Pino / Raquel García',
+
+    /*
+    |--------------------------------------------------------------------------
     | Umbral de "alta puntuación"
     |--------------------------------------------------------------------------
     | Escala del Form: 1 (peor) .. 4 (mejor). Se considera "alta" >= este valor.

@@ -4,7 +4,6 @@ namespace App\Livewire\Webcurso;
 
 use App\Models\Alumno;
 use App\Models\EncuestaCalidad;
-use App\Models\Tutor;
 use App\Services\Webcurso\EncuestaCalidadService;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
@@ -28,7 +27,7 @@ class EncuestasCalidadIndex extends Component
     public string $filtroSatisfaccion = '';   // '' | '4' | '3mas' | 'menos3'
     public string $filtroCurso        = '';   // busca en curso_resuelto
     public string $filtroTipoCurso    = '';   // fundae | legacy | autonomo | bonificado
-    public string $filtroTutor        = '';   // tutor_id
+    public string $filtroTutor        = '';   // tutor_label (David Guerra | Álvaro Pino / Raquel García)
     public string $filtroEmpresa      = '';   // cif
     public string $filtroDesde        = '';
     public string $filtroHasta        = '';
@@ -45,6 +44,10 @@ class EncuestasCalidadIndex extends Component
     public bool    $mostrarHistorial = false;
     public ?string $historialNombre  = null;
     public array   $historialCursos  = [];
+
+    // Mensaje transitorio del botón "Buscar en Moodle"
+    public ?string $mensajeMoodle = null;
+    public string  $mensajeMoodleTipo = 'ok'; // ok | warn
 
     protected $queryString = [
         'filtroAno'          => ['except' => '2026'],
@@ -121,6 +124,49 @@ class EncuestasCalidadIndex extends Component
         $this->historialCursos = [];
     }
 
+    /**
+     * Botón por fila: resuelve el curso de UNA encuesta contra el índice de
+     * matrículas de Moodle (`moodle_matricula_index`). Fallback cuando el Panel no
+     * encontró curso. Requiere que el snapshot se haya ejecutado.
+     */
+    public function resolverEnMoodle(int $encuestaId): void
+    {
+        $this->mensajeMoodle = null;
+
+        if (!config('encuesta_calidad.moodle_resolucion_enabled', true)) {
+            $this->mensajeMoodle = 'La resolución vía Moodle está desactivada.';
+            $this->mensajeMoodleTipo = 'warn';
+            return;
+        }
+
+        $e = EncuestaCalidad::find($encuestaId);
+        if (!$e) {
+            return;
+        }
+
+        if (\App\Models\MoodleMatriculaIndex::query()->doesntExist()) {
+            $this->mensajeMoodle = 'El índice de Moodle está vacío. Ejecuta antes: php artisan encuestas-calidad:snapshot-moodle';
+            $this->mensajeMoodleTipo = 'warn';
+            return;
+        }
+
+        $cand = (new EncuestaCalidadService())->resolverCursoDesdeIndiceMoodle(
+            $e->alumno_email,
+            $e->fecha_cumplimentacion,
+            $e->denominacion_accion,
+        );
+
+        if ($cand) {
+            $e->forceFill($cand)->save();
+            $this->mensajeMoodle = "Curso resuelto desde Moodle: {$cand['curso_resuelto']}";
+            $this->mensajeMoodleTipo = 'ok';
+        } else {
+            $e->forceFill(['curso_origen' => 'moodle_sin_match'])->save();
+            $this->mensajeMoodle = 'No se encontró el curso en Moodle (matrícula eliminada o alumno no presente).';
+            $this->mensajeMoodleTipo = 'warn';
+        }
+    }
+
     // ─── Query principal ──────────────────────────────────────────────────────
 
     /** Aplica los filtros comunes (año/rango, curso, tipo, tutor, empresa, búsqueda, observaciones). */
@@ -135,7 +181,7 @@ class EncuestasCalidadIndex extends Component
             ->when($this->filtroHasta !== '', fn ($q) => $q->whereDate('fecha_cumplimentacion', '<=', $this->filtroHasta))
             ->when($this->filtroCurso !== '', fn ($q) => $q->where('curso_resuelto', 'like', "%{$this->filtroCurso}%"))
             ->when($this->filtroTipoCurso !== '', fn ($q) => $q->where('curso_tipo', $this->filtroTipoCurso))
-            ->when($this->filtroTutor !== '', fn ($q) => $q->where('tutor_id', $this->filtroTutor))
+            ->when($this->filtroTutor !== '', fn ($q) => $q->where('tutor_label', $this->filtroTutor))
             ->when($this->filtroEmpresa !== '', fn ($q) => $q->where('cif_empresa', 'like', "%{$this->filtroEmpresa}%"))
             ->when($this->search !== '', function ($q) {
                 $q->where(function ($sub) {
@@ -182,7 +228,10 @@ class EncuestasCalidadIndex extends Component
 
         $fila = 2;
         foreach ($rows as $e) {
-            $accionGrupo = ($e->numero_accion || $e->numero_grupo) ? (($e->numero_accion ?: '?') . '/' . ($e->numero_grupo ?: '?')) : '';
+            // Solo identificadores numéricos reales (el Form a veces trae texto en numero_grupo).
+            $accionGrupo = is_numeric($e->numero_accion)
+                ? ($e->numero_accion . (is_numeric($e->numero_grupo) ? '/' . $e->numero_grupo : ''))
+                : '';
             $sheet->fromArray([
                 $e->alumno_nombre,
                 $e->alumno_email,
@@ -278,39 +327,15 @@ class EncuestasCalidadIndex extends Component
         return $dist;
     }
 
-    /** Media de satisfacción por tutor (solo cursos resueltos a grupo FUNDAE con tutor). */
-    protected function getMediaPorTutor(): array
-    {
-        $filas = $this->baseQuery()
-            ->whereNotNull('satisfaccion_general')
-            ->whereNotNull('tutor_id')
-            ->groupBy('tutor_id')
-            ->select('tutor_id')
-            ->selectRaw('AVG(satisfaccion_general) as media')
-            ->selectRaw('COUNT(*) as respuestas')
-            ->havingRaw('COUNT(*) >= 3')
-            ->orderByDesc('media')
-            ->get();
-
-        $tutores = Tutor::whereIn('id', $filas->pluck('tutor_id'))->get()->keyBy('id');
-
-        return $filas->map(fn ($r) => [
-            'tutor'      => optional($tutores->get($r->tutor_id))->nombre_completo
-                ?? trim((optional($tutores->get($r->tutor_id))->nombre ?? '') . ' ' . (optional($tutores->get($r->tutor_id))->apellido1 ?? ''))
-                ?: ('Tutor #' . $r->tutor_id),
-            'media'      => round($r->media, 2),
-            'respuestas' => $r->respuestas,
-        ])->toArray();
-    }
-
-    /** Media de cada bloque FUNDAE (promedio de las medias de sus items). Respeta filtros. */
+    /**
+     * Medias por bloque FUNDAE del conjunto filtrado (se usa cuando hay un curso
+     * enfocado, para ver el desglose de ESE curso). Promedio de las medias de los
+     * items de cada bloque. Alias "a_" para no colisionar con el cast integer.
+     */
     protected function getMediasPorBloque(): array
     {
         $bloques = config('encuesta_calidad.bloques', []);
 
-        // Media de cada item + satisfacción en un solo query. Alias con prefijo
-        // "a_" para NO colisionar con las columnas casteadas a integer del modelo
-        // (si no, el cast truncaría la media a entero).
         $query = $this->baseQuery();
         for ($i = 1; $i <= 19; $i++) {
             $col = 'item_' . str_pad((string) $i, 2, '0', STR_PAD_LEFT);
@@ -346,14 +371,17 @@ class EncuestasCalidadIndex extends Component
             ->pluck('curso_resuelto')->toArray();
     }
 
-    /** Tutores presentes en las encuestas (para el dropdown del filtro). */
+    /**
+     * Etiquetas de tutor presentes en las encuestas (para el dropdown del filtro).
+     * Es texto porque Álvaro y Raquel comparten aula: se distingue "David Guerra"
+     * del bucket conjunto "Álvaro Pino / Raquel García".
+     */
     protected function getTutoresDisponibles(): array
     {
-        $ids = EncuestaCalidad::query()->whereNotNull('tutor_id')->distinct()->pluck('tutor_id');
-
-        return Tutor::whereIn('id', $ids)->orderBy('nombre')->get()
-            ->mapWithKeys(fn ($t) => [$t->id => trim("{$t->nombre} {$t->apellido1}")])
-            ->toArray();
+        return EncuestaCalidad::query()
+            ->whereNotNull('tutor_label')->where('tutor_label', '!=', '')
+            ->distinct()->orderBy('tutor_label')
+            ->pluck('tutor_label')->toArray();
     }
 
     protected function getAniosDisponibles(): array
@@ -390,8 +418,8 @@ class EncuestasCalidadIndex extends Component
             'stats'              => $this->getEstadisticas(),
             'distribucion'       => $this->getDistribucion(),
             'porCurso'           => $this->getEstadisticasPorCurso(),
-            'porTutor'           => $this->getMediaPorTutor(),
-            'porBloque'          => $this->getMediasPorBloque(),
+            // Desglose por bloques solo cuando hay un curso enfocado
+            'porBloque'          => $this->filtroCurso !== '' ? $this->getMediasPorBloque() : [],
             'aniosDisponibles'   => $this->getAniosDisponibles(),
             'cursosDisponibles'  => $this->getCursosDisponibles(),
             'tutoresDisponibles' => $this->getTutoresDisponibles(),

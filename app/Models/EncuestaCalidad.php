@@ -48,6 +48,7 @@ class EncuestaCalidad extends Model
         'grupo_formativo_id',
         'accion_formativa_id',
         'tutor_id',
+        'tutor_label',
         'imported_at',
     ];
 
