@@ -184,27 +184,35 @@ class MatriculacionPanel extends Component
 
     public function guardarAlumno(): void
     {
-        $this->validate([
-            'alumnoNombre'    => 'required|string|max:255',
-            'alumnoApellido1' => 'required|string|max:255',
-            'alumnoApellido2' => 'nullable|string|max:255',
-            'alumnoNif'       => 'required|string|max:15|unique:alumnos,nif',
-            'alumnoEmail'     => 'required|email|max:255|unique:alumnos,email',
-            'alumnoTelefono'  => 'nullable|string|max:20',
-        ], [
-            'alumnoNif.unique'     => 'Ya existe un alumno con ese NIF.',
-            'alumnoEmail.required' => 'El correo electrónico es obligatorio.',
-            'alumnoEmail.unique'   => 'Ya existe un alumno con ese correo electrónico.',
-        ]);
-
-        $empresaId = $this->empresaId();
-
         if (!$this->puedeMatricular()) {
             session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
-        Alumno::updateOrCreate(
+        $empresaId = $this->empresaId();
+
+        // El alta reutiliza al alumno que ya exista con este NIF en la misma empresa
+        // (es la clave del updateOrCreate de abajo). Se ignora en las reglas unique para
+        // que volver a darlo de alta actualice sus datos en vez de rechazar el formulario.
+        $existente = Alumno::where('nif', $this->alumnoNif)
+            ->where('empresa_id', $empresaId)
+            ->first();
+        $ignorar = $existente?->id ?? 'NULL';
+
+        $this->validate([
+            'alumnoNombre'    => 'required|string|max:255',
+            'alumnoApellido1' => 'required|string|max:255',
+            'alumnoApellido2' => 'nullable|string|max:255',
+            'alumnoNif'       => 'required|string|max:15|unique:alumnos,nif,' . $ignorar,
+            'alumnoEmail'     => 'required|email|max:255|unique:alumnos,email,' . $ignorar,
+            'alumnoTelefono'  => 'nullable|string|max:20',
+        ], [
+            'alumnoNif.unique'     => 'Ese NIF pertenece a otro alumno.',
+            'alumnoEmail.required' => 'El correo electrónico es obligatorio.',
+            'alumnoEmail.unique'   => 'Ese correo pertenece a otro alumno.',
+        ]);
+
+        $alumno = Alumno::updateOrCreate(
             ['nif' => $this->alumnoNif, 'empresa_id' => $empresaId],
             [
                 // Sin empresa registrada (externa/particular) se guarda la razón social como texto
@@ -217,9 +225,29 @@ class MatriculacionPanel extends Component
             ]
         );
 
+        // Vincularlo al grupo que se está gestionando. Sin esto el alumno queda huérfano:
+        // en candidatos sin empresa registrada la lista de reutilización solo muestra a los
+        // que ya pertenecen a un grupo del candidato, asi que no habria forma de recuperarlo.
+        $vinculado = false;
+        if ($this->grupoSeleccionadoId) {
+            $this->agregarAlumnosAlGrupo($alumno->id);
+
+            $vinculado = GrupoFormativoAlumno::where('grupo_formativo_id', $this->grupoSeleccionadoId)
+                ->where('alumno_id', $alumno->id)
+                ->exists();
+        }
+
         $this->mostrarFormAlumno = false;
         $this->resetFormAlumno();
-        session()->flash('message-matricula', 'Alumno guardado correctamente.');
+
+        if ($vinculado) {
+            session()->flash('message-matricula', 'Alumno guardado y añadido al grupo.');
+        } elseif (!$this->grupoSeleccionadoId) {
+            session()->flash('message-matricula', 'Alumno guardado correctamente.');
+        } else {
+            // agregarAlumnosAlGrupo ya dejó en error-matricula el motivo del rechazo
+            session()->flash('message-matricula', 'Alumno guardado, pero no se añadió al grupo.');
+        }
     }
 
     protected function resetFormAlumno(): void
@@ -1679,6 +1707,22 @@ class MatriculacionPanel extends Component
 
     public function crearMatriculaAutonoma(): void
     {
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
+            return;
+        }
+
+        $esParticular = $this->esCandidatoParticular();
+        // Un particular no pertenece a ninguna empresa: su empresa queda como texto libre.
+        $empresaId = $this->empresaId();
+
+        // Igual que en el alta de alumno del grupo: si ya existe con ese NIF en la misma
+        // empresa, se reutiliza en lugar de rechazar el formulario.
+        $existente = $this->autonomoNuevoAlumno
+            ? Alumno::where('nif', $this->autonomoNif)->where('empresa_id', $empresaId)->first()
+            : null;
+        $ignorar = $existente?->id ?? 'NULL';
+
         $rules = [
             'autonomoAccionFormativaId' => 'required|exists:acciones_formativas,id',
             'autonomoTutorId'           => 'required|exists:tutores,id',
@@ -1694,8 +1738,8 @@ class MatriculacionPanel extends Component
                 'autonomoNombre'    => 'required|string|max:255',
                 'autonomoApellido1' => 'required|string|max:255',
                 'autonomoApellido2' => 'nullable|string|max:255',
-                'autonomoNif'       => 'required|string|max:15|unique:alumnos,nif',
-                'autonomoEmail'     => 'required|email|max:255|unique:alumnos,email',
+                'autonomoNif'       => 'required|string|max:15|unique:alumnos,nif,' . $ignorar,
+                'autonomoEmail'     => 'required|email|max:255|unique:alumnos,email,' . $ignorar,
                 'autonomoTelefono'  => 'nullable|string|max:20',
                 // Solo informativo: no crea ni vincula nada en la tabla `empresas`
                 'autonomoEmpresaTexto' => 'nullable|string|max:255',
@@ -1714,43 +1758,32 @@ class MatriculacionPanel extends Component
             'autonomoNombre.required'           => 'El nombre del alumno es obligatorio.',
             'autonomoApellido1.required'        => 'El primer apellido es obligatorio.',
             'autonomoNif.required'              => 'El NIF del alumno es obligatorio.',
-            'autonomoNif.unique'                => 'Ya existe un alumno con ese NIF.',
+            'autonomoNif.unique'                => 'Ese NIF pertenece a otro alumno.',
             'autonomoEmail.required'            => 'El correo del alumno es obligatorio.',
             'autonomoEmail.email'               => 'El correo no tiene un formato válido.',
-            'autonomoEmail.unique'              => 'Ya existe un alumno con ese correo.',
+            'autonomoEmail.unique'              => 'Ese correo pertenece a otro alumno.',
         ]);
 
-        $esParticular = $this->esCandidatoParticular();
-
-        // Un particular no pertenece a ninguna empresa: su empresa queda como texto libre.
-        $empresaId = $this->empresaId();
-
-        if (!$this->puedeMatricular()) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
+        // Un alumno bonificado (con grupo FUNDAE) no puede ser ademas autonomo ni particular.
+        $alumnoPrevio = $this->autonomoNuevoAlumno ? $existente : Alumno::find($this->autonomoAlumnoId);
+        if ($alumnoPrevio && $alumnoPrevio->gruposFormativos()->exists()) {
+            session()->flash('error-matricula', 'Este alumno tiene grupos FUNDAE. Un alumno bonificado no puede ser autónomo ni particular.');
             return;
         }
 
-        // Verificar que el alumno existente no sea bonificado (FUNDAE)
-        if (!$this->autonomoNuevoAlumno) {
-            $alumno = Alumno::find($this->autonomoAlumnoId);
-            if ($alumno && $alumno->gruposFormativos()->exists()) {
-                session()->flash('error-matricula', 'Este alumno tiene grupos FUNDAE. Un alumno bonificado no puede ser autónomo ni particular.');
-                return;
-            }
-        }
-
-        // Crear nuevo alumno si es necesario
+        // Crear (o reutilizar) el alumno si se está dando de alta desde aquí
         if ($this->autonomoNuevoAlumno) {
-            $alumno = Alumno::create([
-                'empresa_id'    => $empresaId,
-                'empresa_texto' => $this->autonomoEmpresaTexto ? trim($this->autonomoEmpresaTexto) : null,
-                'nombre'        => $this->aTitleCase($this->autonomoNombre),
-                'apellido1'     => $this->aTitleCase($this->autonomoApellido1),
-                'apellido2'     => $this->autonomoApellido2 ? $this->aTitleCase($this->autonomoApellido2) : null,
-                'nif'           => $this->autonomoNif,
-                'email'         => mb_strtolower(trim($this->autonomoEmail)),
-                'telefono'      => $this->autonomoTelefono ?: null,
-            ]);
+            $alumno = Alumno::updateOrCreate(
+                ['nif' => $this->autonomoNif, 'empresa_id' => $empresaId],
+                [
+                    'empresa_texto' => $this->autonomoEmpresaTexto ? trim($this->autonomoEmpresaTexto) : null,
+                    'nombre'        => $this->aTitleCase($this->autonomoNombre),
+                    'apellido1'     => $this->aTitleCase($this->autonomoApellido1),
+                    'apellido2'     => $this->autonomoApellido2 ? $this->aTitleCase($this->autonomoApellido2) : null,
+                    'email'         => mb_strtolower(trim($this->autonomoEmail)),
+                    'telefono'      => $this->autonomoTelefono ?: null,
+                ]
+            );
             $alumnoId = $alumno->id;
         } else {
             $alumnoId = $this->autonomoAlumnoId;

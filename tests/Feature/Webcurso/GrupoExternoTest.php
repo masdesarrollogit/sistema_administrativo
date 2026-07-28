@@ -183,3 +183,94 @@ it('rechaza generar XML de inicio para un grupo externo', function () {
     expect(fn () => (new FundaeXmlService())->generarXmlInicioGrupo([$externo->id]))
         ->toThrow(InvalidArgumentException::class);
 });
+
+/**
+ * El alta de alumno dentro del grupo debe dejarlo YA vinculado. Si no, en un candidato
+ * sin empresa registrada el alumno queda huerfano: no aparece en el grupo ni en la lista
+ * de reutilizacion (que solo muestra a los del propio candidato), y al reintentarlo la
+ * validacion unique lo rechaza por "ya existe". Sin salida posible.
+ */
+it('deja el alumno dentro del grupo externo nada mas guardarlo', function () {
+    $candidato = candidatoExterno();
+    $accion = AccionFormativa::factory()->create();
+    $tutor = Tutor::factory()->create();
+
+    $componente = Livewire::test(MatriculacionPanel::class, ['candidato' => $candidato])
+        ->set('nuevaAccionFormativaId', $accion->id)
+        ->set('nuevoTutorId', $tutor->id)
+        ->set('nuevoCodigoGrupoExterno', '241/3')
+        ->set('nuevaFechaInicio', now()->toDateString())
+        ->set('nuevaFechaFin', now()->addDays(20)->toDateString())
+        ->call('crearGrupo')
+        ->set('alumnoNombre', 'Annette')
+        ->set('alumnoApellido1', 'Perez')
+        ->set('alumnoNif', '33963525T')
+        ->set('alumnoEmail', 'annette@example.com')
+        ->call('guardarAlumno')
+        ->assertHasNoErrors();
+
+    $grupo = GrupoFormativo::where('candidato_id', $candidato->id)->firstOrFail();
+    $alumno = Alumno::where('nif', '33963525T')->firstOrFail();
+
+    expect($grupo->alumnos()->where('alumno_id', $alumno->id)->exists())->toBeTrue()
+        ->and($componente->html())->toContain('Annette Perez');
+});
+
+it('reutiliza al alumno existente en vez de rechazarlo por duplicado', function () {
+    $candidato = candidatoExterno();
+
+    // Huérfano de un intento anterior: mismo NIF y email, sin grupo
+    $huerfano = Alumno::factory()->create([
+        'empresa_id' => null,
+        'nif'        => '33963525T',
+        'email'      => 'annette@example.com',
+        'nombre'     => 'Annete',   // mal escrito
+    ]);
+
+    $accion = AccionFormativa::factory()->create();
+    $tutor = Tutor::factory()->create();
+
+    Livewire::test(MatriculacionPanel::class, ['candidato' => $candidato])
+        ->set('nuevaAccionFormativaId', $accion->id)
+        ->set('nuevoTutorId', $tutor->id)
+        ->set('nuevoCodigoGrupoExterno', '241/3')
+        ->set('nuevaFechaInicio', now()->toDateString())
+        ->set('nuevaFechaFin', now()->addDays(20)->toDateString())
+        ->call('crearGrupo')
+        ->set('alumnoNombre', 'Annette')
+        ->set('alumnoApellido1', 'Perez')
+        ->set('alumnoNif', '33963525T')
+        ->set('alumnoEmail', 'annette@example.com')
+        ->call('guardarAlumno')
+        ->assertHasNoErrors();
+
+    // No se duplica: se actualiza el que ya estaba y queda dentro del grupo
+    expect(Alumno::where('nif', '33963525T')->count())->toBe(1)
+        ->and($huerfano->fresh()->nombre)->toBe('Annette')
+        ->and(GrupoFormativo::where('candidato_id', $candidato->id)->firstOrFail()
+            ->alumnos()->where('alumno_id', $huerfano->id)->exists())->toBeTrue();
+});
+
+it('sigue bloqueando un correo que pertenece a otro alumno', function () {
+    $candidato = candidatoExterno();
+    Alumno::factory()->create(['empresa_id' => null, 'nif' => '11111111A', 'email' => 'ocupado@example.com']);
+
+    $accion = AccionFormativa::factory()->create();
+    $tutor = Tutor::factory()->create();
+
+    Livewire::test(MatriculacionPanel::class, ['candidato' => $candidato])
+        ->set('nuevaAccionFormativaId', $accion->id)
+        ->set('nuevoTutorId', $tutor->id)
+        ->set('nuevoCodigoGrupoExterno', '241/3')
+        ->set('nuevaFechaInicio', now()->toDateString())
+        ->set('nuevaFechaFin', now()->addDays(20)->toDateString())
+        ->call('crearGrupo')
+        ->set('alumnoNombre', 'Otro')
+        ->set('alumnoApellido1', 'Distinto')
+        ->set('alumnoNif', '22222222B')
+        ->set('alumnoEmail', 'ocupado@example.com')
+        ->call('guardarAlumno')
+        ->assertHasErrors('alumnoEmail');
+
+    expect(Alumno::where('nif', '22222222B')->exists())->toBeFalse();
+});
