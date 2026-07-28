@@ -3,7 +3,7 @@
 namespace App\Mail;
 
 use App\Models\Alumno;
-use App\Models\GrupoFormativo;
+use App\Contracts\OrigenMatriculaMoodle;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
@@ -20,7 +20,7 @@ class AlumnoRiesgoCriticoMail extends Mailable
 
     public function __construct(
         public Alumno $alumno,
-        public GrupoFormativo $grupo,
+        public OrigenMatriculaMoodle $matricula,
         public ?float $notaTotal,
         public ?float $notaMax,
         public ?float $notaPorcentaje,
@@ -28,9 +28,9 @@ class AlumnoRiesgoCriticoMail extends Mailable
         public ?float $pctTiempoTranscurrido,
     ) {
         $publicUrl = rtrim(config('moodle.public_url', 'https://aula.1curso.com'), '/');
-        $this->courseUrl = "{$publicUrl}/course/view.php?id={$grupo->moodle_course_id}";
-        $this->cursoNombre = $grupo->accionFormativa?->denominacion_limpia
-            ?? ($grupo->accionFormativa?->denominacion ?? 'tu curso');
+        $this->courseUrl = "{$publicUrl}/course/view.php?id={$matricula->moodleCourseIdMatricula()}";
+        $this->cursoNombre = $matricula->accionFormativaMatricula()?->denominacion_limpia
+            ?? ($matricula->accionFormativaMatricula()?->denominacion ?? 'tu curso');
     }
 
     public function envelope(): Envelope

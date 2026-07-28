@@ -372,6 +372,77 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 - `aulasystem` — matriculado en plataforma externa (marcado manualmente)
 - `error` — fallo en el proceso
 
+### Grupos formativos externos — bonificacion gestionada por la empresa cliente (desarrollado 2026-07-28)
+
+Para candidatos de tipo `empresa_externa`: la empresa gestiona su propia bonificacion ante FUNDAE, comunica alli la accion y el grupo, y solo nos traslada el codigo resultante (ej. `241/3`). Nosotros impartimos el curso en Moodle, asi que el alumno debe quedar bajo el mismo seguimiento academico que un bonificado propio.
+
+**Modelado**: es un `GrupoFormativo` con `gestion_externa = true`, NO una entidad nueva. Razon: el snapshot de Reportes Moodle recorre exclusivamente el pivot `grupo_formativo_alumno` y `alumno_progreso_moodle` tiene FK a ese pivot. Una entidad hermana (tipo `MatriculaAutonoma`) seria invisible para Reportes 1-7, que es justo el defecto que hoy tienen los autonomos 2x1.
+
+**Columnas nuevas** (`grupos_formativos`): `gestion_externa` (bool, indexado) y `codigo_grupo_externo` (string 50, texto libre tal cual lo facilita la empresa).
+
+**La empresa externa NUNCA entra en `empresas`** (corregido 2026-07-28): gestiona su propia bonificacion y nosotros no calculamos su credito, asi que figurar en `/webcurso/empresas` con saldo cero seria un dato inventado. Sus datos viven solo en `empresas_externas`, como registro de control.
+
+En consecuencia:
+- `grupos_formativos.empresa_id` y `alumnos.empresa_id` son NULL en los externos (ambas columnas son nullable)
+- La razon social se copia a `alumnos.empresa_texto` (el mismo campo informativo que usan los particulares)
+- `GrupoFormativo::$empresa_nombre` / `::$empresa_cif` resuelven el dato via `candidato->empresaExterna` cuando no hay FK
+- `Candidato::razonSocialEntidad()` / `::cifEntidad()` dan el dato sin importar el tipo
+- En el alta de candidato, el buscador de empresa por CIF **solo aparece en `empresa_organizadora`** (la unica que registramos porque le calculamos el saldo). En `empresa_externa` se teclean CIF y razon social, que se guardan con `EmpresaExterna::updateOrCreate` por CIF
+- El panel de matriculacion lista los alumnos disponibles por candidato (grupos + matriculas) cuando no hay empresa registrada, en vez de por `empresa_id`
+
+**Flujo** (sin paso `comunicado`): crear grupo con el checkbox "La bonificacion la gestiona la empresa cliente" (marcado y bloqueado si el candidato es `empresa_externa`) + campo unico Accion/Grupo → agregar alumnos (las 4 rutas habituales funcionan igual) → **Matricular en Moodle** → `en_curso`.
+
+**Diferencias con un grupo propio**:
+- No se asigna `id_grupo_fundae` (`asignarIdGrupoFundae()` hace `return` inmediato: no consume numeracion nuestra)
+- Sin botones de ID FUNDAE, XML de inicio ni PDF de notificacion; `FundaeXmlService` lanza excepcion si un grupo externo entra en un lote de XML
+- Fecha de inicio libre (permite retroactivo) y `estaAbierto()` exento de la regla de +2 dias; `scopeAbiertos()` aplica el mismo criterio
+- El grupo de Moodle se llama con `codigo_grupo_moodle` (accessor: externo → `codigo_grupo_externo`, propio → `codigo_fundae`)
+
+**Seguimiento academico**: identico al de los bonificados propios, sin tocar el modulo de Reportes. En cuanto el grupo pasa a `en_curso` con `moodle_course_id` y fechas vigentes, entra en el snapshot diario, en los Reportes 1-7, en los emails al alumno y en el resumen semanal al tutor.
+
+**UI**: badge violeta `Externo` + pildora indigo con el codigo en el panel de matriculacion; badge `FUNDAE ext.` en la columna "Curso {año}" de AlumnosIndex (el filtro Tipo = `bonificado` los sigue incluyendo: son bonificados, solo que la bonifica otro).
+
+**Tests**: [`tests/Feature/Webcurso/GrupoExternoTest.php`](../../tests/Feature/Webcurso/GrupoExternoTest.php) — 6 casos.
+
+### Particulares — alumno que paga su curso (desarrollado 2026-07-28)
+
+Para candidatos de tipo `particular`: el alumno paga el curso de su bolsillo. No hay bonificacion, asi que **no lleva grupo formativo** ni se comunica nada a FUNDAE. Se matricula individualmente en Moodle, igual que un autonomo 2x1.
+
+**Modelado**: reutiliza `MatriculaAutonoma` con un campo `modalidad` nuevo:
+- `autonomo_2x1` — curso gratis que acompana a un bonificado (comportamiento previo, valor por defecto)
+- `particular` — el alumno paga; no pertenece a ninguna empresa cliente
+
+La modalidad se deduce del tipo de candidato, sin selector manual. Constantes: `MatriculaAutonoma::MODALIDAD_AUTONOMO` / `::MODALIDAD_PARTICULAR`, scopes `autonomos()` / `particulares()`, helper `esParticular()`.
+
+**Empresa como texto libre**: un particular no tiene empresa cliente. `alumnos.empresa_id` y `matriculas_autonomas.empresa_id` pasan a **nullable**, y se anade `alumnos.empresa_texto` (string 255) con la empresa que declara el alumno. Es **solo informativo**: no se crea ni se vincula nada en la tabla `empresas`. En AlumnosIndex, cuando no hay `empresa_id` se muestra `empresa_texto` con la leyenda "Particular".
+
+**Fechas obligatorias y libres**: inicio y fin son requeridos (sin ventana no se pueden calcular R3 ni R4), pero la fecha de inicio no tiene restriccion: si el alumno paga hoy, puede empezar manana. El campo Dias calcula la fecha fin.
+
+**UI**: la seccion "Grupos Formativos" se oculta por completo para candidatos particulares. La seccion de matriculas individuales cambia de titulo y color segun la modalidad ("Autonomos (oferta 2x1)" ambar / "Particulares (paga el alumno · sin bonificacion)" azul cielo). El listado de alumnos seleccionables de un particular sale de sus propias matriculas, no de una empresa.
+
+**Email de credenciales**: sin parrafo de bonificacion FUNDAE (`esBonificado: false`), igual que los autonomos.
+
+**Tests**: [`tests/Feature/Webcurso/MatriculaParticularTest.php`](../../tests/Feature/Webcurso/MatriculaParticularTest.php) — 6 casos.
+
+### Reportes Moodle extendidos a matriculas individuales (desarrollado 2026-07-28)
+
+Hasta ahora el snapshot solo recorria el pivot `grupo_formativo_alumno`, de modo que los autonomos 2x1 eran **invisibles** en todo el modulo de Reportes. Con la llegada de los particulares se generalizo: cualquier matricula en Moodle entra en el seguimiento academico, venga de un grupo formativo o de una matricula individual.
+
+**Abstraccion — `App\Contracts\OrigenMatriculaMoodle`**: implementado por `GrupoFormativoAlumno` (bonificado) y `MatriculaAutonoma` (autonomo/particular). Normaliza lo que el snapshot y los avisos necesitan: `claveSnapshot()`, `claveOrigen()`, `alumnoIdMatricula()`, `moodleUserIdMatricula()`, `moodleCourseIdMatricula()`, `fechaInicioCurso()`, `fechaFinCurso()`, `tutorMatricula()`, `accionFormativaMatricula()`, `codigoGrupoMatricula()`, `tipoMatricula()`.
+
+**Columnas nuevas**:
+- `alumno_progreso_moodle`: `grupo_formativo_alumno_id` pasa a nullable + `matricula_autonoma_id` nullable + UNIQUE `(matricula_autonoma_id, fecha_snapshot)`
+- `alumno_notificaciones_log`: `matricula_autonoma_id` nullable
+- `alumno_no_aptos`: `grupo_formativo_id` nullable + `matricula_autonoma_id` nullable + `origen_clave` (`grupo:37` / `autonoma:12`). El UNIQUE pasa de `(alumno_id, grupo_formativo_id)` a `(alumno_id, origen_clave)` porque **un UNIQUE con columnas NULL deja de proteger en MySQL**
+
+**Accessors en `AlumnoProgresoMoodle`** que sustituyen al antiguo `$snap->pivot->grupoFormativo`: `origen()`, `grupo`, `tutor_curso`, `accion_curso`, `fecha_inicio_curso`, `fecha_fin_curso`, `codigo_grupo`, `tipo_matricula`, `columnasOrigenLog()`. Los throttles de los crones usan el scope `AlumnoNotificacionLog::delOrigen($snap)` en lugar de filtrar por `grupo_formativo_id`.
+
+**Mailables genericos**: los 7 mailables de alumno (`AlumnoInactivoMail`, `AlumnoNoConectadoMail`, `AlumnoRiesgoCriticoMail`, `AlumnoPreCierreMail`, `AlumnoAptoSinExamenMail`, `AlumnoAptoMail`, `AlumnoNoAptoMail`) reciben ahora `OrigenMatriculaMoodle $matricula` en lugar de `GrupoFormativo $grupo`.
+
+**Requisito para entrar en el snapshot** (matriculas individuales): `estado = matriculado`, `moodle_user_id` y `moodle_course_id` poblados, y **ambas fechas** dentro de la ventana (`fecha_inicio <= hoy <= fecha_fin`, ano 2026). Sin fechas se omite: no se podrian calcular ni el % de tiempo transcurrido (R3) ni el pre-cierre (R4).
+
+**En la UI de Reportes** la columna Accion/Grupo muestra el codigo FUNDAE en bonificados y una pildora `Particular` (azul cielo) / `Autonomo 2x1` (ambar) en las individuales, porque no hay grupo que mostrar.
+
 ### Autonomos 2x1 (desarrollado 2026-03-30, actualizado 2026-04-06)
 - **MatriculaAutonoma**: entidad ligera para alumnos autonomos que no llevan grupo formativo FUNDAE
 - Tabla `matriculas_autonomas`: candidato, alumno, accion_formativa, tutor, empresa, fechas, estado Moodle
@@ -391,6 +462,67 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 - Modelo `Alumno` mantiene las relaciones: `gruposFormativos()`, `matriculasAutonomas()`, `participantesBonificados()` (HasMany por NIF), `cursosLegacy()` (HasMany por NIF)
 - `AlumnosIndex` mantiene los `withCount` (`grupos_total`, `grupos_activos`, `autonomos_total`, `bonificados_total`, `legacy_total`) — los usa el modal Historial
 
+### Subida de Ficha/Encomienda PDF para alta de alumnos (desarrollado 2026-06-01)
+
+Cuarta ruta de incorporación de alumnos al grupo formativo, alternativa al ingreso individual, alumnos fidelizados y subida masiva Excel. Sustituye el flujo manual de "abrir PDF → copiar/pegar campos al formulario" que era el cuello de botella diario del admin.
+
+**Dos formatos soportados** (autodetectados por contenido y número de páginas):
+- **Ficha de Inscripción** (1 página, datos del alumno en la única hoja)
+- **Contrato de Encomienda WebCurso 2026** (3 páginas: p.1 empresa firmante, p.2 alumno, p.3 cláusulas)
+
+**Pipeline multi-tier en `PdfFichaInscripcionParser`** (orquestador):
+1. **Tier 1 — AcroForm**: para PDFs rellenados digitalmente. Extrae valores tanto del widget `/V` como de los XObject appearance streams. Cubre la mayoría de casos (Ejemplos 1, 2 y 5 de los fixtures).
+2. **Tier 2 — Capa de texto**: para PDFs sin AcroForm pero con texto extraíble. Usa `extraerCamposTextoPlano()` con regex anclados por label.
+3. **Tier 3 — OCR local**: para escaneos impresos (Ejemplo 3 tipo). Renderiza la página del alumno con Imagick (300 DPI, grayscale), aplica Tesseract con `lang=spa+eng` y PSM 6, luego usa `extraerCamposOcr()` con extracción line-based + patrones globales (NIF/email/fecha/NISS/CIF/teléfono). Reconstruye email cuando OCR confunde `@` por `G`/`E`/`C`. Guard: si no encuentra NIF NI email, cae a ilegible.
+4. **Tier 4 — Ilegible**: manuscritos o PDFs corruptos (Ejemplo 4 tipo). Preview con campos vacíos para que el admin transcriba a mano. El PDF se archiva igualmente para custodia FUNDAE.
+
+**Características de la UX**:
+- Multi-PDF en una subida (hasta 20 archivos, 10 MB c/u).
+- Drop-zone con `multiple` accept=application/pdf.
+- Preview en tabla con una fila por PDF, totalmente editable (`wire:model.lazy`):
+  - Badge tipo: `Ficha` (azul) / `Encomienda` (indigo) / `Ilegible · manual` (rojo)
+  - Sub-badge `🔍 OCR` (naranja) cuando los datos vienen de Tier 3
+  - Badge estado: `Crear` (verde) / `Actualizar` (ámbar, NIF existe con diff) / `Duplicado · ignorado` (gris, NIF repetido en la subida)
+  - Campos amarillos = inferidos (ej. "Universitarios" → 7 ambiguo)
+  - Campos rojos = obligatorios faltantes
+  - Tooltips diff "antes: X → ahora: Y" en filas Actualizar
+  - Avisos amarillos por fila: CIF no coincide con empresa del grupo, email reservado por otro alumno, etc.
+
+**Normalizaciones aplicadas**:
+- **Title Case** en `nombre`, `apellido1`, `apellido2`, `cargo` (PDFs en MAYÚSCULAS → "Greicy Lisbeth Barreto Colmenares")
+- **Email** con normalización de artefactos: `*@` (AcroForm), `G@`/`E@`/`C@` (OCR), espacios entre local y dominio
+- **NIF/CIF** uppercase + strip espacios/guiones
+- **Fecha** parseo flexible dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy
+- **NISS** solo dígitos
+- **Empresa razón social y curso**: NO se title-casean (preservar siglas tipo "S.L.", "NCS", "ChatGPT")
+
+**Manejo robusto de casos reales detectados**:
+- **Contaminación admin en Encomienda**: identifica el cluster admin (página 1) por anclas únicas en el pool de XObject IDs y lo descarta entero, preservando duplicados que correspondan al alumno (ej. razón social compartida).
+- **Ediciones múltiples del PDF**: cuando el usuario edita un campo varias veces en un visor (Adobe Reader, navegador), el widget `/V` queda obsoleto en el primer valor mientras los XObject appearance streams acumulan todas las versiones con IDs altos. El parser ordena el pool DESC por ID para que el match patternable (email, NIF, fecha, etc.) coja la última versión visible. Para campos sin patrón (nombre/apellidos/cargo/curso), usa scoring greedy con orden ASC para mantener estabilidad.
+- **Mapeos texto→código FUNDAE** para Estudios/Categoría profesional/Grupo cotización TGSS vía trait `LegacyMappings` extendido con patrones longest-first (evita matches de prefijo erróneos tipo "Trabajador" matcheando "Trabajador con baja cualificación" como "Trabajador cualificado").
+
+**Validaciones**:
+- Mime real (`mimetypes:application/pdf`, no solo extensión)
+- CIF del PDF vs CIF de la empresa del grupo: warning si difiere, no bloquea
+- NIF duplicado en la misma subida: marca como `duplicado · ignorado`
+- Email duplicado entre alumnos distintos: bloquea fila, exige corrección
+- Solapamiento de fechas y límite de tutor (80 alumnos por tramo): reutiliza la lógica existente de `agregarAlumnosAlGrupo`
+
+**Persistencia del PDF original**:
+- Carpeta: `storage/app/private/fichas-inscripcion/{grupo_id}/{nif}_{timestamp}.pdf`
+- Pivot `grupo_formativo_alumno` con 3 campos nuevos: `ficha_inscripcion_path`, `ficha_inscripcion_tipo` (ficha|encomienda|manual), `ficha_inscripcion_subida_en`
+- Modelo `GrupoFormativoAlumno` con observer `deleting` que borra el PDF al borrar el pivot (evita huérfanos)
+- Descarga vía `descargarFichaPdf(grupoId, alumnoId)` con `Storage::disk('local')->download()`, no URL pública
+- Icono **📎 PDF** clicable en la tabla del grupo (junto a Editar/Quitar)
+
+**Por qué Tesseract y NO Claude Vision / Document AI** (decisión 2026-06-01):
+- Coste $0/PDF vs $0.02-0.05/PDF (Claude) o $0.03/PDF (Document AI)
+- 100% local → GDPR limpio (NIF/NISS/fechas no salen del Docker)
+- Calidad 90-95% en impreso suficiente para el caso real WebCurso
+- Reutiliza el parser regex existente (línea de código mínima en Tier 3)
+- Manuscritos (Ejemplo 4) seguirían fallando con cualquier OCR, así que Claude Vision tampoco aportaría
+- Setup mínimo: 2 paquetes APT (`tesseract-ocr`, `tesseract-ocr-spa`) + 1 composer package (`thiagoalessio/tesseract_ocr`)
+
 ---
 
 ## Inventario tecnico
@@ -401,9 +533,10 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 | Componentes Livewire | 14 (+ ReportesMoodleIndex) |
 | Clases Mail | 13 (+ AlumnoNoConectadoMail, AlumnoInactivoMail, AlumnoRiesgoCriticoMail, AlumnoPreCierreMail, AlumnoAptoSinExamenMail, AlumnoAptoMail, AlumnoNoAptoMail, TutorReporteSemanalMail) |
 | Comandos Artisan | 19 (+ los 8 de reportes-moodle: snapshot, notificar-no-conectados, notificar-inactivos, notificar-riesgo-critico, notificar-pre-cierre, notificar-apto-sin-examen, notificar-apto, detectar-no-aptos, notificar-no-aptos, notificar-tutores) — añadido `alumnos:auditar-enriquecimiento-legacy` el 2026-05-24 |
-| Servicios | 5 (+ MoodleReportingService, AlumnoProgresoSnapshotter) |
-| Migraciones | 47 |
-| Configs de dominio | 4 (+ reportes_moodle.php) |
+| Servicios | 5 (+ MoodleReportingService, AlumnoProgresoSnapshotter, PdfFichaInscripcionParser, PdfOcrExtractor) |
+| Migraciones | 53 (+ gestion_externa en grupos_formativos, bonificacion_externa en empresas, empresa_texto en alumnos, modalidad en matriculas_autonomas, matricula_autonoma_id en las 3 tablas de reportes) |
+| Contratos | 1 (OrigenMatriculaMoodle) |
+| Configs de dominio | 5 (+ reportes_moodle.php, pdf_ocr.php) |
 
 ---
 
@@ -477,6 +610,19 @@ Dashboard `/webcurso/reportes-moodle` con **KPIs clicables** que abren cada Repo
 - **Filtro de año por rango de fechas vs `whereYear` (2026-05-24)**: el filtro Año usa `fecha_inicio <= 'YYYY-12-31' AND fecha_fin >= 'YYYY-01-01'` en vez de `whereYear('fecha_inicio')`. Razón: captura cursos que cruzan años (ej. 2025-12 → 2026-01). El antiguo `whereYear` los perdía.
 - **Modal Historial agrupado por año con destacado del año en curso (2026-05-24)**: las 4 secciones del modal (FUNDAE Panel / Bonificados / Autónomos / Legacy) agrupan cursos por año. Bloque del año actual con borde verde + fondo verde claro + texto "EN CURSO" arriba; años pasados en bloques grises atenuados abajo. Razón: cuando el alumno tiene cursos en varios años, antes se mezclaban indistinguibles en una tabla única.
 - **Rescate manual de cursos legacy con tipos `manual_escalon_2` / `manual_escalon_4` (2026-05-24)**: cuando el cron automático no rescata por falla del LIKE de nombre, se aplica UPDATE manual marcando el origen para auditoría. Permite reversión y trazabilidad. Aplicado en 23 cursos del año 2026 tras revisión del CSV de auditoría.
+
+- **Particular = modalidad de `MatriculaAutonoma`, no entidad nueva (2026-07-28)**: autonomos 2x1 y particulares comparten exactamente el mismo flujo (matricula individual en Moodle, sin grupo FUNDAE, sin XML ni PDF); la unica diferencia es que uno es gratis y el otro de pago, y que el particular no tiene empresa. Un campo `modalidad` los distingue sin duplicar el pipeline de matriculacion. La modalidad se deduce del tipo de candidato, no se elige a mano.
+  - **Regla que se deriva**: compartir tabla obliga a que TODA consulta de negocio sobre autonomos filtre por modalidad (`->autonomos()` / `->particulares()`). Un `whereHas('matriculasAutonomas')` a secas mezcla ambos y es un bug. Ya corregidos: filtro Tipo de AlumnosIndex, `withCount` de autonomos (partido en `autonomos_total` + `particulares_total`) y la etiqueta de TutoresIndex. Cubierto por el test "el filtro Autónomos no devuelve particulares ni al revés".
+- **Empresa del particular como texto libre (2026-07-28)**: se guarda en `alumnos.empresa_texto` y NO se crea fila en `empresas`. Razon: la tabla `empresas` es el universo FUNDAE (credito, plantilla, CIF); meter ahi el sitio donde trabaja un particular ensuciaria dashboard y estadisticas sin aportar nada, porque nunca se va a bonificar. Contrasta con el caso de las empresas externas, donde SI se crea espejo porque sus alumnos y grupos necesitan la FK.
+- **Reportes Moodle desacoplados del grupo formativo (2026-07-28)**: en lugar de duplicar el snapshot para matriculas individuales, se introdujo el contrato `OrigenMatriculaMoodle` que ambos modelos implementan. Los 10 comandos y la UI preguntan al snapshot (`$snap->tutor_curso`, `$snap->fecha_fin_curso`, …) en vez de navegar `pivot->grupoFormativo`. Asi el modulo dejo de asumir que todo alumno con seguimiento viene de un grupo FUNDAE.
+- **`origen_clave` en `alumno_no_aptos` (2026-07-28)**: con dos FK nullable, un UNIQUE `(alumno_id, grupo_formativo_id, matricula_autonoma_id)` no protegeria nada en MySQL (los NULL no colisionan) y `detectar-no-aptos` dejaria de ser idempotente. Se anade un discriminador de texto sin nulos (`grupo:37` / `autonoma:12`) y el UNIQUE pasa a `(alumno_id, origen_clave)`.
+- **Grupo externo = flag en `GrupoFormativo`, no entidad nueva (2026-07-28)**: los grupos cuya bonificacion gestiona la empresa cliente viven en `grupos_formativos` con `gestion_externa = true`. Razon: el snapshot de Reportes Moodle recorre el pivot `grupo_formativo_alumno` y `alumno_progreso_moodle` tiene FK a ese pivot, sin `grupo_formativo_id`. Una entidad hermana no seria vista por el snapshot, los 10 comandos `reportes-moodle:*` ni el dashboard — exactamente lo que le pasa hoy a `MatriculaAutonoma`. Con el flag heredamos todo el seguimiento academico sin tocar el modulo de Reportes.
+- **Empresa externa fuera de `empresas` (decidido 2026-07-28, tras revertir el espejo)**: se probo primero a crear una fila espejo en `empresas` por CIF para poder colgar de ella alumnos y grupos. Se descarto: `empresas` es el universo FUNDAE nuestro (credito, plantilla, cotizacion) y una externa aparecia ahi con saldo cero, un dato que nosotros no hemos calculado y que ensucia listado y estadisticas. Ahora `empresa_id` es NULL en esos alumnos y grupos, la razon social se guarda en `alumnos.empresa_texto` y los accessors `empresa_nombre`/`empresa_cif` del grupo la resuelven via `candidato->empresaExterna`. Regla general que queda: **solo entra en `empresas` aquello cuyo credito FUNDAE calculamos nosotros**.
+- **Codigo de grupo externo en un unico campo de texto (2026-07-28)**: `codigo_grupo_externo` guarda literalmente lo que nos pasa la empresa (`241/3`) y se usa tal cual como nombre del grupo en Moodle, de modo que nuestro aula y su registro FUNDAE comparten identificador. No se parte en dos columnas: el formato lo decide su FUNDAE, no la nuestra. AlumnosIndex lo trocea por `/` solo para pintar la pildora accion/grupo.
+- **Pipeline OCR Tesseract local vs Vision API externa (2026-06-01)**: para PDFs escaneados (Ejemplo 3 tipo: impreso y digitalizado) se eligió Tesseract local en lugar de Claude Vision / OpenAI / Google Document AI. Razones: $0/PDF vs $0.02-0.05/PDF, 100% local sin datos personales saliendo del Docker (GDPR), 90-95% accuracy en impreso suficiente para WebCurso, y reaprovecha la lógica regex de Tier 2 (línea de código mínima). Manuscritos seguirían fallando con cualquier OCR, así que Vision tampoco aportaría.
+- **Widget V vs XObject ID DESC para PDFs editados múltiples veces (2026-06-01)**: cuando el usuario edita un campo de PDF en un visor (Adobe Reader, navegador), el widget `/V` queda con la PRIMERA grabación mientras los XObject appearance streams acumulan nuevas versiones con IDs crecientes. La última versión visible en pantalla = XObject con ID más alto. Para campos identificables por patrón (email, NIF, fecha, NISS, CIF, teléfono, dropdowns), el pool gana sobre widget V con iteración DESC por ID. Para campos asignados por scoring greedy (nombre/apellidos/cargo/curso/empresa), widget V gana cuando está poblado y el pool itera ASC para tie-breaking estable.
+- **Filtrado de contaminación admin por cluster de IDs (2026-06-01)**: en Encomienda la página 1 tiene datos del firmante (admin) que NO son del alumno. Los XObjects de página 1 se identifican por anclas únicas (valores que aparecen una sola vez en el pool, ej. admin name, NIF admin) y se descarta el rango completo `[min - margen, max + margen]` en lugar de remover una ocurrencia por valor. Esto preserva los duplicados que pertenecen al alumno (ej. razón social cuando empresa firmante = empresa del alumno).
+- **Title Case selectivo en datos OCR/PDF (2026-06-01)**: PDFs llegan típicamente en MAYÚSCULAS. Se aplica Title Case a `nombre`, `apellido1`, `apellido2`, `cargo` para que la UI muestre "Greicy Lisbeth Barreto Colmenares" en lugar de "GREICY LISBETH BARRETO COLMENARES". `empresa_razon_social` y `curso_pdf` se preservan tal cual porque contienen siglas (S.L., NCS, ChatGPT) que romper sería contraproducente.
 
 ## Decisiones de diseno pendientes
 

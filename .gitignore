@@ -31,6 +31,10 @@ auth.json
 .phpunit.result.cache
 /.phpunit.cache
 
+# Datos generados con informacion personal (NIF, nombres, empresas): NO versionar
+/storage/audit
+/storage/encuesta
+
 # Legacy & Backups (Local only)
 /legacy/
 *.sql

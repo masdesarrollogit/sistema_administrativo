@@ -72,3 +72,18 @@ La prioridad depende del modulo que se este desarrollando. Orden logico general:
 - Descripcion personalizada SI se incluye
 - Adjuntos correctos (archivos del candidato + del tipo de requisito)
 - Logging en notificaciones_log (exito y error)
+
+### Grupos externos y particulares (desarrollado 2026-07-28, tests entregados)
+- [`tests/Feature/Webcurso/GrupoExternoTest.php`](../../tests/Feature/Webcurso/GrupoExternoTest.php) — 6 casos: creacion con fecha retroactiva, empresa espejo idempotente, codigo acción/grupo obligatorio, `asignarIdGrupoFundae()` no numera externos, `estaAbierto()` exento del plazo de 2 dias, XML de inicio rechazado
+- [`tests/Feature/Webcurso/MatriculaParticularTest.php`](../../tests/Feature/Webcurso/MatriculaParticularTest.php) — 6 casos: alta sin empresa con `empresa_texto` (sin crear fila en `empresas`), fechas obligatorias, seccion de grupos oculta para particulares, el snapshot recorre grupos + matriculas individuales, guard de matricula sin fechas, accessors de origen (`tutor_curso`, `accion_curso`, `codigo_grupo`, `columnasOrigenLog()`)
+- **Nota**: `TipoCandidatoFactory` usa un `codigo` unico fijo (`empresa_organizadora`), asi que crear dos candidatos por defecto en el mismo test viola el UNIQUE. Reutilizar un solo `Candidato::factory()` o pasar un `codigo` distinto
+
+### Pipeline PDF Ficha/Encomienda (desarrollado 2026-06-01, tests entregados)
+- Tests en [`tests/Feature/Webcurso/PdfFichaInscripcionParserTest.php`](../../tests/Feature/Webcurso/PdfFichaInscripcionParserTest.php) con 5 fixtures reales en [`tests/Fixtures/pdfs/`](../../tests/Fixtures/pdfs/)
+- Cubre los 4 tiers del pipeline:
+  - **Tier 1 (Ejemplos 1 y 2)**: AcroForm rellenado en PC. Ejemplo 1 = Encomienda 3 páginas (Felix Javier admin / Paul Lupascu alumno), Ejemplo 2 = Ficha 1 página con artefacto `*` en email (Alberto Ludeña)
+  - **Tier 1 con widget V poblado (Ejemplo 5)**: Encomienda con orden de IDs invertido (alumno IDs bajos, admin IDs altos). Verifica que la estrategia híbrida widget V + pool funciona regardless del orden
+  - **Tier 3 (Ejemplo 3)**: Encomienda escaneada con datos impresos. Verifica extracción OCR completa + reconstrucción de email `laboralGnartha.es → laboral@nartha.es` + aviso de OCR presente. El test usa `markTestSkipped` si Tesseract no está instalado en el entorno
+  - **Tier 4 (Ejemplo 4)**: Encomienda manuscrita. Verifica que el guard "sin NIF NI email → ilegible" descarta los datos garbage del OCR
+- También cubre: PDF inexistente/corrupto → ilegible con aviso descriptivo
+- **Notas para futuras pruebas**: Tesseract debe estar disponible para que el test Ejemplo 3 corra (Dockerfile en `docker/8.5/` añade `tesseract-ocr` y `tesseract-ocr-spa`). En CI sin Tesseract el test se salta automáticamente

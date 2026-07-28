@@ -41,7 +41,8 @@ class NotificarNoAptosCommand extends Command
             ->where('fecha_deteccion', '>=', $hoy->subDays($ventanaDias))
             ->with([
                 'alumno',
-                'grupoFormativo.accionFormativa',
+                'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
                 'ofrecimientos',
             ])
             ->get();
@@ -58,8 +59,8 @@ class NotificarNoAptosCommand extends Command
 
         foreach ($candidatos as $noApto) {
             $alumno = $noApto->alumno;
-            $grupo = $noApto->grupoFormativo;
-            if (!$alumno || !$grupo || !$alumno->email) {
+            $matricula = $noApto->origen();
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
@@ -86,7 +87,7 @@ class NotificarNoAptosCommand extends Command
             $this->line(sprintf(
                 ' · %s · curso=%s · ofrecimiento %d/%d',
                 $alumno->nombre_completo,
-                $grupo->accionFormativa?->denominacion_limpia ?? "(grupo {$grupo->id})",
+                $noApto->accion_curso?->denominacion_limpia ?? "({$noApto->origen_clave})",
                 $numAhora,
                 $maxOfrecimientos,
             ));
@@ -101,7 +102,7 @@ class NotificarNoAptosCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoNoAptoMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         noApto: $noApto,
                         numOfrecimiento: $numAhora,
                     ));

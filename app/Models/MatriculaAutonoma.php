@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\OrigenMatriculaMoodle;
 use App\Support\MoodlePassword;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,12 +11,24 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Modules\Moodle\Services\MoodleService;
 
-class MatriculaAutonoma extends Model
+/**
+ * Matrícula individual, sin grupo formativo FUNDAE. Dos modalidades:
+ *  - autonomo_2x1: curso gratis que acompaña a un bonificado
+ *  - particular:   el alumno paga el curso; no pertenece a ninguna empresa cliente
+ *
+ * En ambos casos el alumno estudia en nuestra aula, así que entra en Reportes Moodle
+ * igual que un bonificado (ver OrigenMatriculaMoodle).
+ */
+class MatriculaAutonoma extends Model implements OrigenMatriculaMoodle
 {
+    public const MODALIDAD_AUTONOMO = 'autonomo_2x1';
+    public const MODALIDAD_PARTICULAR = 'particular';
+
     protected $table = 'matriculas_autonomas';
 
     protected $fillable = [
         'candidato_id',
+        'modalidad',
         'alumno_id',
         'accion_formativa_id',
         'tutor_id',
@@ -63,6 +76,81 @@ class MatriculaAutonoma extends Model
     public function empresa(): BelongsTo
     {
         return $this->belongsTo(Empresa::class, 'empresa_id');
+    }
+
+    // ─── Scopes ───
+
+    public function scopeAutonomos($query)
+    {
+        return $query->where('modalidad', self::MODALIDAD_AUTONOMO);
+    }
+
+    public function scopeParticulares($query)
+    {
+        return $query->where('modalidad', self::MODALIDAD_PARTICULAR);
+    }
+
+    public function esParticular(): bool
+    {
+        return $this->modalidad === self::MODALIDAD_PARTICULAR;
+    }
+
+    // ─── OrigenMatriculaMoodle: los datos del curso están en la propia fila ───
+
+    public function claveSnapshot(): array
+    {
+        return ['matricula_autonoma_id' => $this->id];
+    }
+
+    public function claveOrigen(): string
+    {
+        return 'autonoma:' . $this->id;
+    }
+
+    public function alumnoIdMatricula(): ?int
+    {
+        return $this->alumno_id;
+    }
+
+    public function moodleUserIdMatricula(): ?int
+    {
+        return $this->moodle_user_id;
+    }
+
+    public function moodleCourseIdMatricula(): ?int
+    {
+        return $this->moodle_course_id;
+    }
+
+    public function fechaInicioCurso(): ?\DateTimeInterface
+    {
+        return $this->fecha_inicio;
+    }
+
+    public function fechaFinCurso(): ?\DateTimeInterface
+    {
+        return $this->fecha_fin;
+    }
+
+    public function tutorMatricula(): ?Tutor
+    {
+        return $this->tutor;
+    }
+
+    public function accionFormativaMatricula(): ?AccionFormativa
+    {
+        return $this->accionFormativa;
+    }
+
+    public function codigoGrupoMatricula(): ?string
+    {
+        // Una matrícula individual no pertenece a ningún grupo FUNDAE.
+        return null;
+    }
+
+    public function tipoMatricula(): string
+    {
+        return $this->esParticular() ? 'particular' : 'autonomo';
     }
 
     // ─── Lógica de negocio ───

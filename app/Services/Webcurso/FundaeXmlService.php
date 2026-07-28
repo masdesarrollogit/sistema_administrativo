@@ -16,6 +16,24 @@ class FundaeXmlService
     }
 
     /**
+     * Los grupos de gestión externa los comunica la empresa cliente en SU aplicativo
+     * FUNDAE: nunca deben acabar en un XML nuestro.
+     *
+     * @param  \Illuminate\Support\Collection<int, GrupoFormativo>  $grupos
+     */
+    protected function rechazarGruposExternos($grupos): void
+    {
+        $externos = $grupos->where('gestion_externa', true);
+
+        if ($externos->isNotEmpty()) {
+            throw new \InvalidArgumentException(
+                'Los grupos de gestión externa no se comunican a nuestra FUNDAE (ids: '
+                . $externos->pluck('id')->implode(', ') . ').'
+            );
+        }
+    }
+
+    /**
      * Generar XML de Acciones Formativas (AF) para carga masiva en FUNDAE.
      */
     public function generarXmlAccionesFormativas(array $accionIds): string
@@ -66,6 +84,8 @@ class FundaeXmlService
         $grupos = GrupoFormativo::whereIn('id', $grupoIds)
             ->with(['alumnos', 'accionFormativa', 'tutor', 'empresa'])
             ->get();
+
+        $this->rechazarGruposExternos($grupos);
 
         $xml = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8"?><grupos/>');
 
@@ -146,6 +166,8 @@ class FundaeXmlService
             ->where('estado', 'completado')
             ->with(['alumnos', 'accionFormativa', 'empresa'])
             ->get();
+
+        $this->rechazarGruposExternos($grupos);
 
         $xml = new SimpleXMLElement('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><grupos/>');
 

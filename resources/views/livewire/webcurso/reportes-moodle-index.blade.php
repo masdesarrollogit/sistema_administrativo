@@ -263,9 +263,11 @@
                         @forelse($noAptosListado as $na)
                             @php
                                 $alumno = $na->alumno;
+                                // El No apto puede venir de un grupo formativo o de una matrícula individual
+                                $origenNoApto = $na->origen();
                                 $grupo = $na->grupoFormativo;
-                                $accion = $grupo?->accionFormativa;
-                                $tutor = $grupo?->tutor;
+                                $accion = $na->accion_curso;
+                                $tutor = $origenNoApto?->tutorMatricula();
                                 $numOfrec = $na->ofrecimientos->where('exitoso', true)->count();
                                 $estadoColor = match($na->reinicio_estado) {
                                     'reiniciado'  => 'bg-green-100 text-green-800 border-green-400',
@@ -284,11 +286,13 @@
                                 <td class="px-3 py-2 text-gray-700">{{ \Illuminate\Support\Str::limit($accion?->denominacion ?? '—', 35) }}</td>
                                 <td class="px-3 py-2 text-gray-700">{{ $tutor ? trim($tutor->nombre.' '.$tutor->apellido1) : '—' }}</td>
                                 <td class="px-3 py-2 text-gray-700">
-                                    @if($accion && $grupo?->id_grupo_fundae)
-                                        {{ $accion->numero_accion }}/{{ $grupo->id_grupo_fundae }}
-                                    @else
-                                        —
-                                    @endif
+                                    {{-- Bonificado: código FUNDAE (o el externo). Individual: modalidad --}}
+                                    {{ $origenNoApto?->codigoGrupoMatricula()
+                                        ?? match($origenNoApto?->tipoMatricula()) {
+                                            'particular' => 'Particular',
+                                            'autonomo'   => 'Autónomo 2x1',
+                                            default      => '—',
+                                        } }}
                                 </td>
                                 <td class="px-3 py-2 text-gray-700">{{ $na->fecha_fin_curso?->format('d/m/Y') }}</td>
                                 <td class="px-3 py-2 text-right text-gray-700">
@@ -360,13 +364,17 @@
                     @forelse($snapshots as $snap)
                         @php
                             $alumno = $snap->alumno;
-                            $grupo = $snap->pivot?->grupoFormativo;
-                            $accion = $grupo?->accionFormativa;
-                            $tutor = $grupo?->tutor;
-                            $key = "{$snap->alumno_id}:".($grupo?->id ?? '0');
+                            // El origen puede ser un grupo formativo o una matrícula individual
+                            $origen = $snap->origen();
+                            $grupo = $snap->grupo;
+                            $accion = $snap->accion_curso;
+                            $tutor = $snap->tutor_curso;
+                            $fechaInicioCurso = $snap->fecha_inicio_curso;
+                            $fechaFinCurso = $snap->fecha_fin_curso;
+                            $key = "{$snap->alumno_id}:".($origen?->claveOrigen() ?? '0');
                             $avisos = $notifCounts[$key] ?? 0;
-                            $diasRestantes = $grupo?->fecha_fin
-                                ? max(0, (int) now('Europe/Madrid')->startOfDay()->diffInDays(\Carbon\Carbon::parse($grupo->fecha_fin)->startOfDay(), false))
+                            $diasRestantes = $fechaFinCurso
+                                ? max(0, (int) now('Europe/Madrid')->startOfDay()->diffInDays(\Carbon\Carbon::parse($fechaFinCurso)->startOfDay(), false))
                                 : null;
                         @endphp
                         <tr class="hover:bg-gray-50">
@@ -470,19 +478,23 @@
                                     </div>
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-sm text-gray-700">{{ $snap->pivot?->moodle_username ?? '—' }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-700">{{ $snap->pivot?->moodle_username ?? $snap->matriculaAutonoma?->moodle_username ?? '—' }}</td>
                             <td class="px-4 py-3 text-sm text-gray-700">{{ \Illuminate\Support\Str::limit($accion?->denominacion ?? '—', 40) }}</td>
                             <td class="px-4 py-3 text-sm text-gray-700">{{ $tutor ? trim($tutor->nombre.' '.$tutor->apellido1) : '—' }}</td>
                             <td class="px-4 py-3 text-sm text-gray-700">
-                                @if($accion && $grupo?->id_grupo_fundae)
-                                    {{ $accion->numero_accion }}/{{ $grupo->id_grupo_fundae }}
+                                {{-- Bonificado: código FUNDAE (o el externo). Individual: modalidad --}}
+                                @if($grupo)
+                                    {{ $snap->codigo_grupo ?? '—' }}
                                 @else
-                                    —
+                                    <span class="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold
+                                        {{ $snap->tipo_matricula === 'particular' ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700' }}">
+                                        {{ $snap->codigo_grupo ?? '—' }}
+                                    </span>
                                 @endif
                             </td>
                             <td class="px-4 py-3 text-xs text-gray-600">
-                                {{ $grupo?->fecha_inicio?->format('d/m/Y') ?? '—' }} →
-                                {{ $grupo?->fecha_fin?->format('d/m/Y') ?? '—' }}
+                                {{ $fechaInicioCurso?->format('d/m/Y') ?? '—' }} →
+                                {{ $fechaFinCurso?->format('d/m/Y') ?? '—' }}
                             </td>
                             <td class="px-4 py-3 text-right text-sm text-gray-700">{{ $diasRestantes ?? '—' }}</td>
                             <td class="px-4 py-3 text-sm text-gray-700 min-w-[160px]">

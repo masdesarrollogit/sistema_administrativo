@@ -24,6 +24,8 @@ class AlumnoNoApto extends Model
         'alumno_id',
         'grupo_formativo_id',
         'grupo_formativo_alumno_id',
+        'matricula_autonoma_id',
+        'origen_clave',
         'moodle_user_id',
         'moodle_course_id',
         'nota_total',
@@ -59,6 +61,25 @@ class AlumnoNoApto extends Model
     public function pivot(): BelongsTo
     {
         return $this->belongsTo(GrupoFormativoAlumno::class, 'grupo_formativo_alumno_id');
+    }
+
+    public function matriculaAutonoma(): BelongsTo
+    {
+        return $this->belongsTo(MatriculaAutonoma::class, 'matricula_autonoma_id');
+    }
+
+    /**
+     * Origen del que salió este No apto: grupo formativo o matrícula individual.
+     */
+    public function origen(): ?\App\Contracts\OrigenMatriculaMoodle
+    {
+        return $this->pivot ?? $this->matriculaAutonoma;
+    }
+
+    /** Acción formativa del curso suspendido, venga de donde venga. */
+    public function getAccionCursoAttribute(): ?AccionFormativa
+    {
+        return $this->origen()?->accionFormativaMatricula();
     }
 
     public function ofrecimientos(): HasMany

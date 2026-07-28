@@ -16,6 +16,7 @@ class Alumno extends Model
 
     protected $fillable = [
         'empresa_id',
+        'empresa_texto',
         'nombre',
         'apellido1',
         'apellido2',

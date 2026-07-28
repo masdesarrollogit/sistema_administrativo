@@ -73,6 +73,25 @@ class Candidato extends Model
     }
 
     /**
+     * Razón social de la entidad del candidato, sea empresa nuestra o externa.
+     *
+     * Las empresas externas NO se dan de alta en `empresas`: gestionan su propia
+     * bonificación y nosotros no calculamos su crédito, así que figurar en el listado
+     * con saldo cero sería un dato inventado. Sus datos viven en `empresas_externas` y
+     * los alumnos guardan la razón social en `alumnos.empresa_texto`, solo informativa.
+     */
+    public function razonSocialEntidad(): ?string
+    {
+        return $this->empresa?->razon_social ?? $this->empresaExterna?->razon_social;
+    }
+
+    /** CIF de la entidad del candidato, sea empresa nuestra o externa. */
+    public function cifEntidad(): ?string
+    {
+        return $this->empresa?->cif ?? $this->empresaExterna?->cif;
+    }
+
+    /**
      * Relación con requisitos
      */
     public function requisitos(): HasMany

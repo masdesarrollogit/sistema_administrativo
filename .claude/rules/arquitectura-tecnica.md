@@ -20,9 +20,13 @@ Candidato
 ```
 Empresa
 └── hasMany Grupo (vinculados por CIF)
+    Solo contiene empresas cuyo credito FUNDAE calculamos nosotros (import del XLS).
 
 EmpresaExterna
 └── hasMany Candidato
+    Gestiona su propia bonificacion: NO se replica en `empresas`. Sus alumnos y grupos
+    quedan con `empresa_id = NULL`; la razon social se copia a `alumnos.empresa_texto` y
+    el grupo la resuelve con los accessors `empresa_nombre` / `empresa_cif`.
 ```
 
 ### Entidades historicas (comparacion interanual)
@@ -94,7 +98,9 @@ Tutor
 ├── NOTA: tramo_horario NO pertenece al tutor, pertenece al GrupoFormativo
 
 Alumno
-├── belongsTo Empresa
+├── belongsTo Empresa (empresa_id NULLABLE desde 2026-07-28: un particular no tiene empresa)
+├── empresa_texto (string nullable) — empresa declarada por un alumno particular.
+│   Solo informativo: NO se crea fila en `empresas` ni se usa para bonificar
 ├── belongsToMany GrupoFormativo (via grupo_formativo_alumno)
 ├── hasMany MatriculaAutonoma — matriculas autonomas 2x1 del alumno
 ├── hasMany ParticipanteBonificado (por nif_participante ↔ nif) — participaciones FUNDAE importadas
@@ -106,7 +112,11 @@ Alumno
 ├── metodo: tieneGrupoActivo() — deprecated, llama a tieneGrupoActivoEnPeriodo sin fechas
 
 GrupoFormativo (entidad central de matriculacion)
-├── belongsTo Candidato, AccionFormativa, Tutor, Empresa
+├── belongsTo Candidato, AccionFormativa, Tutor, Empresa (empresa_id NULLABLE: los externos no la tienen)
+├── accessors empresa_nombre / empresa_cif — respaldo via candidato->empresaExterna
+├── gestion_externa (bool, indexado) — true = la bonificacion la gestiona la empresa cliente en SU FUNDAE
+├── codigo_grupo_externo (string 50, nullable) — accion/grupo que nos facilita la empresa externa (ej: 241/3)
+├── accessor codigo_grupo_moodle — externo → codigo_grupo_externo, propio → codigo_fundae. Es el nombre del grupo en Moodle
 ├── tramo_horario (tramo_1 | tramo_2) — pertenece al GRUPO, no al tutor
 ├── jornada_laboral (1=completa, 2=media)
 ├── descripcion — formato FUNDAE: {CIF} {empresa} {alumno|({N})} {curso} {horas}h {tramo}{tutor}
@@ -126,7 +136,11 @@ GrupoFormativo (entidad central de matriculacion)
 
 ### Entidades de autonomos (desarrollado 2026-03-30)
 ```
-MatriculaAutonoma (matricula individual sin grupo FUNDAE — oferta 2x1)
+MatriculaAutonoma (matricula individual sin grupo FUNDAE — autonomo 2x1 o particular)
+├── modalidad: 'autonomo_2x1' (curso gratis con un bonificado) | 'particular' (paga el alumno)
+│   └── se deduce del tipo de candidato; scopes autonomos()/particulares(), helper esParticular()
+├── implements OrigenMatriculaMoodle — entra en Reportes Moodle igual que un bonificado
+├── empresa_id NULLABLE — un particular no pertenece a ninguna empresa cliente
 ├── belongsTo Candidato — contexto del candidato que trajo al autonomo
 ├── belongsTo Alumno — el alumno autonomo
 ├── belongsTo AccionFormativa — que curso
@@ -167,7 +181,7 @@ User (Spatie HasRoles, HasPermissions)
 | Tutor | `internos()` | Solo tipo interno |
 | Alumno | `activos()` | Solo activos |
 | Alumno | `disponibles()` | Sin grupo activo (abierto/comunicado/en_curso) |
-| GrupoFormativo | `abiertos()` | Estado abierto + mas de 2 dias antes del inicio |
+| GrupoFormativo | `abiertos()` | Estado abierto + mas de 2 dias antes del inicio (los de `gestion_externa` quedan exentos del plazo) |
 | GrupoFormativo | `enCurso()` | Estado en_curso |
 
 ## Patrones Livewire
@@ -207,6 +221,32 @@ User (Spatie HasRoles, HasPermissions)
 - Autenticacion: token via `config('moodle.token')`, header `Host` via `MOODLE_HOST_OVERRIDE`
 - Metodos disponibles: `createUser`, `updateUserPassword`, `findUserByUsername`, `enrolInCourse` (con timestart/timeend/suspend), `getUserCourses`, `createGroup`, `addUsersToGroup`, `searchCourses`, `getUserGrades`, `testConnection`, `call` (generico)
 - Ver `api-moodle.md` para documentacion completa de cada metodo
+
+### PdfFichaInscripcionParser (`app/Services/Webcurso/PdfFichaInscripcionParser.php`)
+- Pipeline multi-tier de extracción de datos desde PDFs Ficha de Inscripción y Contrato de Encomienda WebCurso
+- Método público: `parsear(string $filePath): array` — retorna `['exito', 'tipo', 'origen', 'datos', 'inferidos', 'faltantes', 'avisos']`
+- Tier 1: AcroForm via `smalot/pdfparser` — combina widget `/V` (`extraerCamposDesdeWidgets`) y XObject appearance pool (`extraerCamposAcroForm` con scoring greedy + DESC sort para últimas ediciones)
+- Tier 2: capa de texto via `extraerCamposTextoPlano` (regex anclados por label, lookaheads al siguiente label conocido)
+- Tier 3: OCR delegado a `PdfOcrExtractor` + `extraerCamposOcr` (line-based + patrones globales, reconstrucción de email `G/E/C → @`)
+- Tier 4: ilegible con guard "si no hay NIF NI email → ilegible"
+- Usa trait `App\Console\Commands\Concerns\LegacyMappings` (mapeo texto→código FUNDAE: nivel estudios 1-10, categoría profesional 1-5, grupo cotización TGSS 1-11)
+- Normalizaciones específicas: `aTitleCase` para nombre/apellidos/cargo, `normalizarEmail` con artefactos AcroForm (`*@`, U+FF20) y OCR, `normalizarCif`, `normalizarNif`, `normalizarFecha`, `normalizarNiss`
+- Filtros: `filtrarContaminacionPaginaAdmin` (cluster admin por anclas únicas), `filtrarPoolALaPaginaDelAlumno` (anchor range + posibles ediciones por encima)
+
+### PdfOcrExtractor (`app/Services/Webcurso/PdfOcrExtractor.php`)
+- Tier 3 del pipeline: renderiza PDF a PNG con Imagick y aplica Tesseract local
+- Método público: `extraerTexto(string $pdfPath, string $tipo = 'desconocido'): string`
+- Renderizado: Imagick a DPI configurable (default 300), grayscale para mejor OCR
+- OCR: wrapper `thiagoalessio/tesseract_ocr`, lang `spa+eng` por defecto, PSM 6 (uniform block)
+- Selección de páginas: encomienda → p.2, ficha → p.1, desconocido → p.1-N hasta `max_pages`
+- Fail-soft: si Tesseract no está disponible (`exec tesseract --version` falla) o Imagick lanza excepción, devuelve `''` y el caller cae a ilegible
+- Limpieza automática: PNG temporales se borran en `finally`
+- Config en `config/pdf_ocr.php`
+
+### PdfNotificacionFundaeParser (`app/Services/Webcurso/PdfNotificacionFundaeParser.php`)
+- Parsea la "Notificación: Inicio de Grupo" descargada del portal FUNDAE (PDF)
+- Extrae: ID Grupo FUNDAE, número acción, denominación con CIF, fechas inicio/fin, fecha emisión, horas totales, participantes previstos
+- Usado por `MatriculacionPanel::procesarPdfNotificacion()` para validar que el PDF corresponde al grupo + marcarlo como `comunicado`
 
 ## Sistema de cron
 
@@ -312,6 +352,15 @@ composer test                    # Ejecuta tests Pest con SQLite in-memory
 - `token` — token de API (env: MOODLE_TOKEN)
 - `public_url` — URL publica para enlaces en emails al alumno (env: MOODLE_PUBLIC_URL, default: `https://aula.1curso.com`)
 - `mail_from` — remitente emails de credenciales (env: MOODLE_MAIL_FROM, default: `info@aula.1curso.com`)
+
+### config/pdf_ocr.php (Tier 3 OCR del pipeline de Fichas PDF)
+- `enabled` — activar/desactivar Tier 3 (env: PDF_OCR_ENABLED, default: true). Si está OFF, PDFs escaneados van directos a "ilegible → manual"
+- `dpi` — resolución de renderizado PDF→PNG vía Imagick (env: PDF_OCR_DPI, default: 300). Subir para escaneos de mala calidad, bajar para nítidos
+- `languages` — idiomas Tesseract en formato `lang1+lang2` (env: PDF_OCR_LANG, default: `spa+eng`). Requiere paquetes APT `tesseract-ocr-spa` y `tesseract-ocr-eng`
+- `psm` — Page Segmentation Mode de Tesseract (env: PDF_OCR_PSM, default: 6 = uniform block of text)
+- `max_pages` — tope de páginas a OCR cuando el tipo es `desconocido` (env: PDF_OCR_MAX_PAGES, default: 3)
+- `min_chars` — umbral mínimo de chars en texto OCR para considerarlo válido (env: PDF_OCR_MIN_CHARS, default: 200). Por debajo, cae a ilegible
+- `tmp_dir` — carpeta para PNG temporales (env: PDF_OCR_TMP_DIR, default: `sys_get_temp_dir()`)
 
 ### config/mail.php — mailer dedicado Moodle
 Mailer `moodle` separado del mailer general (`smtp` con Gmail). Usado exclusivamente por `CredencialesMoodleMail`:

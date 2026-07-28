@@ -23,6 +23,8 @@ class GrupoFormativo extends Model
         'accion_formativa_id',
         'tutor_id',
         'empresa_id',
+        'gestion_externa',
+        'codigo_grupo_externo',
         'tramo_horario',
         'descripcion',
         'id_grupo_fundae',
@@ -41,6 +43,7 @@ class GrupoFormativo extends Model
         'moodle_group_id' => 'integer',
         'moodle_course_id'=> 'integer',
         'jornada_laboral' => 'integer',
+        'gestion_externa' => 'boolean',
     ];
 
     // ─── Relaciones ───
@@ -77,10 +80,18 @@ class GrupoFormativo extends Model
 
     // ─── Scopes ───
 
+    /**
+     * Grupos que aún admiten cambios. Los de gestión externa quedan exentos de la
+     * regla FUNDAE de "hasta 2 días antes del inicio": la empresa cliente nos avisa
+     * cuando quiere (a veces con el curso ya empezado) y no comunicamos nada nosotros.
+     */
     public function scopeAbiertos($query)
     {
         return $query->where('estado', 'abierto')
-            ->where('fecha_inicio', '>', now()->addDays(2));
+            ->where(function ($q) {
+                $q->where('gestion_externa', true)
+                    ->orWhere('fecha_inicio', '>', now()->addDays(2));
+            });
     }
 
     public function scopeEnCurso($query)
@@ -102,7 +113,6 @@ class GrupoFormativo extends Model
      */
     public function getDescripcionFundaeAttribute(): string
     {
-        $empresa = $this->empresa;
         $accion = $this->accionFormativa;
         $tutor = $this->tutor;
         $tramo = $this->tramo_horario === 'tramo_1' ? 'T1' : 'T2';
@@ -117,8 +127,8 @@ class GrupoFormativo extends Model
 
         $descripcion = sprintf(
             '%s %s %s %s %dh %s%s',
-            $empresa->cif,
-            $empresa->razon_social,
+            $this->empresa_cif ?? '',
+            $this->empresa_nombre ?? '',
             $parteAlumno,
             $accion->denominacion_limpia,
             $accion->horas,
@@ -141,6 +151,39 @@ class GrupoFormativo extends Model
         return $this->accionFormativa->numero_accion . '/' . $this->id_grupo_fundae;
     }
 
+    /**
+     * Razón social de la empresa participante.
+     *
+     * En grupos de gestión externa `empresa_id` es NULL a propósito: esa empresa no
+     * figura en nuestro universo FUNDAE. El dato se lee de `empresas_externas` a través
+     * del candidato, que es donde se registra para control.
+     */
+    public function getEmpresaNombreAttribute(): ?string
+    {
+        return $this->empresa?->razon_social
+            ?? $this->candidato?->empresaExterna?->razon_social;
+    }
+
+    /** CIF de la empresa participante, con el mismo respaldo que empresa_nombre. */
+    public function getEmpresaCifAttribute(): ?string
+    {
+        return $this->empresa?->cif
+            ?? $this->candidato?->empresaExterna?->cif;
+    }
+
+    /**
+     * Código que identifica al grupo de cara a Moodle.
+     * En grupos propios es nuestro {accion}/{grupo} FUNDAE; en grupos de gestión
+     * externa es literalmente el texto que nos pasó la empresa cliente (ej. 241/3),
+     * que es el mismo con el que ellos lo tienen comunicado en su FUNDAE.
+     */
+    public function getCodigoGrupoMoodleAttribute(): ?string
+    {
+        return $this->gestion_externa
+            ? $this->codigo_grupo_externo
+            : $this->codigo_fundae;
+    }
+
     public function getTramoLabelAttribute(): string
     {
         return match ($this->tramo_horario) {
@@ -155,8 +198,16 @@ class GrupoFormativo extends Model
      */
     public function estaAbierto(): bool
     {
-        return $this->estado === 'abierto'
-            && $this->fecha_inicio->startOfDay()->gte(now()->startOfDay()->addDays(2));
+        if ($this->estado !== 'abierto') {
+            return false;
+        }
+
+        // Gestión externa: sin plazo FUNDAE que respetar (lo comunica la empresa cliente).
+        if ($this->gestion_externa) {
+            return true;
+        }
+
+        return $this->fecha_inicio->startOfDay()->gte(now()->startOfDay()->addDays(2));
     }
 
     // ─── Lógica de negocio ───
@@ -167,6 +218,12 @@ class GrupoFormativo extends Model
      */
     public function asignarIdGrupoFundae(): void
     {
+        // Los grupos de gestión externa se registran en la FUNDAE de la empresa cliente:
+        // no deben consumir un número de nuestra secuencia.
+        if ($this->gestion_externa) {
+            return;
+        }
+
         $numeroAccion = $this->accionFormativa->numero_accion;
 
         // Máximo en la tabla grupos (importados de FUNDAE)
@@ -232,7 +289,7 @@ class GrupoFormativo extends Model
         // Crear (o reutilizar) el grupo Moodle para este grupo formativo
         $moodleGroupId = $this->moodle_group_id;
         if (!$moodleGroupId) {
-            $nombreGrupo = $this->codigo_fundae ?? "GF-{$this->id}";
+            $nombreGrupo = $this->codigo_grupo_moodle ?? "GF-{$this->id}";
             $moodleGroupId = $moodle->createGroup($moodleCourseId, $nombreGrupo);
             $this->update([
                 'moodle_group_id'  => $moodleGroupId,

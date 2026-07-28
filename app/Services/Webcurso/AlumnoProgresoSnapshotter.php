@@ -2,11 +2,13 @@
 
 namespace App\Services\Webcurso;
 
+use App\Contracts\OrigenMatriculaMoodle;
 use App\Models\AlumnoCalificacionMoodle;
 use App\Models\AlumnoProgresoMoodle;
 use App\Models\GrupoFormativoAlumno;
+use App\Models\MatriculaAutonoma;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -26,7 +28,7 @@ class AlumnoProgresoSnapshotter
         $hoy = CarbonImmutable::now('Europe/Madrid')->toDateString();
         $resumen = ['procesados' => 0, 'escritos' => 0, 'errores' => 0, 'omitidos' => 0, 'mensajes' => []];
 
-        $pivots = $this->seleccionarPivots($alumnoId);
+        $matriculas = $this->seleccionarMatriculas($alumnoId);
 
         // Resolver IDs de categorías Moodle excluidas (Repaso, Foros, etc.)
         $nombresExcluidos = (array) config('reportes_moodle.moodle.categorias_excluidas', []);
@@ -36,25 +38,38 @@ class AlumnoProgresoSnapshotter
                 . ' (' . implode(', ', $nombresExcluidos) . ')';
         }
 
-        // Limpieza pre-bucle: borrar snapshots de hoy cuyos pivots ya no pasan el SQL
+        // Limpieza pre-bucle: borrar snapshots de hoy cuyo origen ya no pasa el SQL
         // (curso finalizado, fecha_inicio futura, alumno desmatriculado, etc.).
         // Los borrados por categoría Moodle excluida se hacen DENTRO del bucle.
         if ($alumnoId === null && !$dryRun) {
-            $pivotIdsActivos = $pivots->pluck('id')->all();
+            $pivotIdsActivos = $matriculas
+                ->filter(fn ($m) => $m instanceof GrupoFormativoAlumno)
+                ->pluck('id')->all();
+            $matriculaIdsActivas = $matriculas
+                ->filter(fn ($m) => $m instanceof MatriculaAutonoma)
+                ->pluck('id')->all();
+
             $borrados = AlumnoProgresoMoodle::whereDate('fecha_snapshot', $hoy)
-                ->whereNotIn('grupo_formativo_alumno_id', $pivotIdsActivos)
+                ->where(function ($q) use ($pivotIdsActivos, $matriculaIdsActivas) {
+                    $q->where(fn ($s) => $s->whereNotNull('grupo_formativo_alumno_id')
+                        ->whereNotIn('grupo_formativo_alumno_id', $pivotIdsActivos))
+                      ->orWhere(fn ($s) => $s->whereNotNull('matricula_autonoma_id')
+                        ->whereNotIn('matricula_autonoma_id', $matriculaIdsActivas));
+                })
                 ->delete();
+
             if ($borrados > 0) {
                 $resumen['mensajes'][] = "Limpieza: {$borrados} snapshot(s) obsoleto(s) eliminados.";
             }
         }
 
-        if ($pivots->isEmpty()) {
-            $resumen['mensajes'][] = 'No hay alumnos elegibles (grupos en_curso 2026 con estado_moodle=matriculado).';
+        if ($matriculas->isEmpty()) {
+            $resumen['mensajes'][] = 'No hay alumnos elegibles (grupos en_curso o matrículas individuales activas de 2026 con estado matriculado).';
             return $resumen;
         }
 
-        $moodleUserIds = $pivots->pluck('moodle_user_id')
+        $moodleUserIds = $matriculas
+            ->map(fn (OrigenMatriculaMoodle $m) => $m->moodleUserIdMatricula())
             ->filter()
             ->map(fn ($id) => (int) $id)
             ->unique()
@@ -73,16 +88,17 @@ class AlumnoProgresoSnapshotter
             $lastAccessGlobal = [];
         }
 
-        foreach ($pivots as $pivot) {
+        foreach ($matriculas as $matricula) {
             $resumen['procesados']++;
 
-            if (!$pivot->moodle_user_id || !$pivot->grupoFormativo?->moodle_course_id) {
+            if (!$matricula->moodleUserIdMatricula() || !$matricula->moodleCourseIdMatricula()) {
                 $resumen['omitidos']++;
                 continue;
             }
 
-            $moodleUserId = (int) $pivot->moodle_user_id;
-            $moodleCourseId = (int) $pivot->grupoFormativo->moodle_course_id;
+            $claveSnapshot = $matricula->claveSnapshot();
+            $moodleUserId = (int) $matricula->moodleUserIdMatricula();
+            $moodleCourseId = (int) $matricula->moodleCourseIdMatricula();
             $lastGlobal = $lastAccessGlobal[$moodleUserId] ?? null;
 
             try {
@@ -99,7 +115,7 @@ class AlumnoProgresoSnapshotter
             if ($stats === null) {
                 $resumen['omitidos']++;
                 if (!$dryRun) {
-                    AlumnoProgresoMoodle::where('grupo_formativo_alumno_id', $pivot->id)
+                    AlumnoProgresoMoodle::where($claveSnapshot)
                         ->whereDate('fecha_snapshot', $hoy)
                         ->delete();
                 }
@@ -111,7 +127,7 @@ class AlumnoProgresoSnapshotter
             if ($categoriaCurso !== null && in_array($categoriaCurso, $categoriaIdsExcluidos, true)) {
                 $resumen['omitidos']++;
                 if (!$dryRun) {
-                    AlumnoProgresoMoodle::where('grupo_formativo_alumno_id', $pivot->id)
+                    AlumnoProgresoMoodle::where($claveSnapshot)
                         ->whereDate('fecha_snapshot', $hoy)
                         ->delete();
                 }
@@ -151,8 +167,8 @@ class AlumnoProgresoSnapshotter
             // (los que nunca entraron al curso son Reporte 1, no Reporte 3, aunque su nota
             // total figure técnicamente como 0/2.94 — el problema principal es no haber entrado).
             $pctTiempo = $this->calcularPctTiempoTranscurrido(
-                $pivot->grupoFormativo->fecha_inicio ?? null,
-                $pivot->grupoFormativo->fecha_fin ?? null,
+                $matricula->fechaInicioCurso(),
+                $matricula->fechaFinCurso(),
             );
             $riesgoCritico = $lastaccessCurso !== null
                 && $lastaccessCurso > 0
@@ -164,7 +180,7 @@ class AlumnoProgresoSnapshotter
 
             // Reporte 4 — Pre-cierre: últimas 72h del curso AND cuestionario_final no realizado.
             $umbralPreCierreHoras = (int) config('reportes_moodle.reporte_pre_cierre.umbral_horas', 72);
-            $horasHastaFin = $this->calcularHorasHastaFin($pivot->grupoFormativo->fecha_fin ?? null);
+            $horasHastaFin = $this->calcularHorasHastaFin($matricula->fechaFinCurso());
             $preCierre = $horasHastaFin !== null
                 && $horasHastaFin >= 0
                 && $horasHastaFin <= $umbralPreCierreHoras
@@ -177,7 +193,7 @@ class AlumnoProgresoSnapshotter
                 && !$cuestionarioFinalRealizado;
 
             $datos = [
-                'alumno_id'                    => $pivot->alumno_id,
+                'alumno_id'                    => $matricula->alumnoIdMatricula(),
                 'moodle_user_id'               => $moodleUserId,
                 'moodle_course_id'             => $moodleCourseId,
                 'lastaccess_global'            => $lastGlobal,
@@ -207,10 +223,7 @@ class AlumnoProgresoSnapshotter
             }
 
             $progreso = AlumnoProgresoMoodle::updateOrCreate(
-                [
-                    'grupo_formativo_alumno_id' => $pivot->id,
-                    'fecha_snapshot'            => $hoy,
-                ],
+                $claveSnapshot + ['fecha_snapshot' => $hoy],
                 $datos,
             );
 
@@ -296,26 +309,39 @@ class AlumnoProgresoSnapshotter
     }
 
     /**
-     * Refresca un único pivote ahora mismo (acción manual desde la UI).
+     * Refresca un único origen ahora mismo (acción manual desde la UI).
      */
-    public function refrescar(GrupoFormativoAlumno $pivot): ?AlumnoProgresoMoodle
+    public function refrescar(OrigenMatriculaMoodle $matricula): ?AlumnoProgresoMoodle
     {
-        $resumen = $this->ejecutar(alumnoId: $pivot->alumno_id, dryRun: false, fuente: 'manual');
+        $this->ejecutar(alumnoId: $matricula->alumnoIdMatricula(), dryRun: false, fuente: 'manual');
 
         return AlumnoProgresoMoodle::deHoy()
-            ->where('grupo_formativo_alumno_id', $pivot->id)
+            ->where($matricula->claveSnapshot())
             ->first();
     }
 
     /**
-     * @return Collection<int, GrupoFormativoAlumno>
+     * Orígenes elegibles para el snapshot de hoy: bonificados de grupos en curso y
+     * matrículas individuales (autónomos 2x1 y particulares) dentro de su ventana.
+     *
+     * @return Collection<int, OrigenMatriculaMoodle>
      */
-    protected function seleccionarPivots(?int $alumnoId = null): Collection
+    protected function seleccionarMatriculas(?int $alumnoId = null): Collection
+    {
+        return collect()
+            ->concat($this->seleccionarPivots($alumnoId))
+            ->concat($this->seleccionarMatriculasIndividuales($alumnoId));
+    }
+
+    /**
+     * @return \Illuminate\Database\Eloquent\Collection<int, GrupoFormativoAlumno>
+     */
+    protected function seleccionarPivots(?int $alumnoId = null)
     {
         $hoy = CarbonImmutable::now('Europe/Madrid')->toDateString();
 
         $query = GrupoFormativoAlumno::query()
-            ->with(['grupoFormativo:id,moodle_course_id,fecha_inicio,fecha_fin,estado,tutor_id,accion_formativa_id'])
+            ->with(['grupoFormativo:id,moodle_course_id,fecha_inicio,fecha_fin,estado,tutor_id,accion_formativa_id,gestion_externa,codigo_grupo_externo,id_grupo_fundae'])
             ->where('estado_moodle', 'matriculado')
             ->whereNotNull('moodle_user_id')
             ->whereHas('grupoFormativo', function ($q) use ($hoy) {
@@ -327,6 +353,37 @@ class AlumnoProgresoSnapshotter
                       $qq->whereYear('fecha_inicio', 2026)
                          ->orWhereYear('fecha_fin', 2026);
                   });
+            });
+
+        if ($alumnoId !== null) {
+            $query->where('alumno_id', $alumnoId);
+        }
+
+        return $query->get();
+    }
+
+    /**
+     * Matrículas individuales activas. Se exigen ambas fechas: sin ventana no se pueden
+     * evaluar el % de tiempo transcurrido (R3) ni el pre-cierre (R4).
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, MatriculaAutonoma>
+     */
+    protected function seleccionarMatriculasIndividuales(?int $alumnoId = null)
+    {
+        $hoy = CarbonImmutable::now('Europe/Madrid')->toDateString();
+
+        $query = MatriculaAutonoma::query()
+            ->with(['tutor', 'accionFormativa'])
+            ->where('estado', 'matriculado')
+            ->whereNotNull('moodle_user_id')
+            ->whereNotNull('moodle_course_id')
+            ->whereNotNull('fecha_inicio')
+            ->whereNotNull('fecha_fin')
+            ->whereDate('fecha_inicio', '<=', $hoy)
+            ->whereDate('fecha_fin', '>=', $hoy)
+            ->where(function ($q) {
+                $q->whereYear('fecha_inicio', 2026)
+                  ->orWhereYear('fecha_fin', 2026);
             });
 
         if ($alumnoId !== null) {

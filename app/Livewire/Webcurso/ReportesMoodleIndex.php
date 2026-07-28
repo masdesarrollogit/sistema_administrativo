@@ -200,26 +200,41 @@ class ReportesMoodleIndex extends Component
 
         $base = AlumnoProgresoMoodle::query()
             ->whereDate('fecha_snapshot', $hoy)
-            ->whereHas('pivot.grupoFormativo', function ($q) use ($hoy) {
-                $q->where('estado', 'en_curso')
-                  ->whereDate('fecha_inicio', '<=', $hoy)   // ya empezó
-                  ->whereDate('fecha_fin',    '>=', $hoy);  // aún no ha finalizado
+            // Curso vivo hoy, venga de un grupo formativo o de una matrícula individual
+            ->where(function ($q) use ($hoy) {
+                $q->whereHas('pivot.grupoFormativo', function ($g) use ($hoy) {
+                    $g->where('estado', 'en_curso')
+                      ->whereDate('fecha_inicio', '<=', $hoy)   // ya empezó
+                      ->whereDate('fecha_fin',    '>=', $hoy);  // aún no ha finalizado
+                })->orWhereHas('matriculaAutonoma', function ($m) use ($hoy) {
+                    $m->where('estado', 'matriculado')
+                      ->whereDate('fecha_inicio', '<=', $hoy)
+                      ->whereDate('fecha_fin',    '>=', $hoy);
+                });
             })
             ->with([
                 'alumno.empresa',
                 'pivot.grupoFormativo.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.accionFormativa',
+                'matriculaAutonoma.tutor',
             ]);
 
-        // Filtros sobre relaciones
+        // Filtros sobre relaciones (aplicados a ambos orígenes)
         if ($this->tutorId !== '') {
-            $base->whereHas('pivot.grupoFormativo', fn ($q) => $q->where('tutor_id', $this->tutorId));
+            $base->where(function ($q) {
+                $q->whereHas('pivot.grupoFormativo', fn ($g) => $g->where('tutor_id', $this->tutorId))
+                  ->orWhereHas('matriculaAutonoma', fn ($m) => $m->where('tutor_id', $this->tutorId));
+            });
         }
         if ($this->empresaId !== '') {
             $base->whereHas('alumno', fn ($q) => $q->where('empresa_id', $this->empresaId));
         }
         if ($this->accionId !== '') {
-            $base->whereHas('pivot.grupoFormativo', fn ($q) => $q->where('accion_formativa_id', $this->accionId));
+            $base->where(function ($q) {
+                $q->whereHas('pivot.grupoFormativo', fn ($g) => $g->where('accion_formativa_id', $this->accionId))
+                  ->orWhereHas('matriculaAutonoma', fn ($m) => $m->where('accion_formativa_id', $this->accionId));
+            });
         }
         if ($this->search !== '') {
             $term = "%{$this->search}%";
@@ -306,10 +321,17 @@ class ReportesMoodleIndex extends Component
             ])
             ->where('exitoso', true)
             ->whereIn('alumno_id', $alumnoIds)
-            ->selectRaw('alumno_id, grupo_formativo_id, COUNT(*) as total')
-            ->groupBy('alumno_id', 'grupo_formativo_id')
+            ->selectRaw('alumno_id, grupo_formativo_id, matricula_autonoma_id, COUNT(*) as total')
+            ->groupBy('alumno_id', 'grupo_formativo_id', 'matricula_autonoma_id')
             ->get()
-            ->mapWithKeys(fn ($r) => ["{$r->alumno_id}:{$r->grupo_formativo_id}" => (int) $r->total])
+            ->mapWithKeys(function ($r) {
+                // Misma clave que arma la vista: bonificado por grupo, individual por matrícula.
+                $origen = $r->grupo_formativo_id
+                    ? "grupo:{$r->grupo_formativo_id}"
+                    : "autonoma:{$r->matricula_autonoma_id}";
+
+                return ["{$r->alumno_id}:{$origen}" => (int) $r->total];
+            })
             ->all();
 
         // Filtros disponibles (tutor, empresa, acción) limitados al universo del día
@@ -319,7 +341,13 @@ class ReportesMoodleIndex extends Component
                 ->where(function ($q) {
                     $q->whereYear('fecha_inicio', 2026)->orWhereYear('fecha_fin', 2026);
                 })
-                ->pluck('tutor_id'))
+                ->pluck('tutor_id')
+                ->merge(\App\Models\MatriculaAutonoma::query()
+                    ->where('estado', 'matriculado')
+                    ->where(function ($q) {
+                        $q->whereYear('fecha_inicio', 2026)->orWhereYear('fecha_fin', 2026);
+                    })
+                    ->pluck('tutor_id')))
             ->orderBy('nombre')
             ->get(['id', 'nombre', 'apellido1']);
 
@@ -334,7 +362,13 @@ class ReportesMoodleIndex extends Component
                 ->where(function ($q) {
                     $q->whereYear('fecha_inicio', 2026)->orWhereYear('fecha_fin', 2026);
                 })
-                ->pluck('accion_formativa_id'))
+                ->pluck('accion_formativa_id')
+                ->merge(\App\Models\MatriculaAutonoma::query()
+                    ->where('estado', 'matriculado')
+                    ->where(function ($q) {
+                        $q->whereYear('fecha_inicio', 2026)->orWhereYear('fecha_fin', 2026);
+                    })
+                    ->pluck('accion_formativa_id')))
             ->orderBy('denominacion')
             ->get(['id', 'denominacion', 'numero_accion']);
 
@@ -351,16 +385,31 @@ class ReportesMoodleIndex extends Component
         $noAptosListado = collect();
         if ($this->reporte === 'no_aptos') {
             $q = AlumnoNoApto::query()
-                ->with(['alumno.empresa', 'grupoFormativo.accionFormativa', 'grupoFormativo.tutor', 'ofrecimientos', 'cerradoPor']);
+                ->with([
+                    'alumno.empresa',
+                    'grupoFormativo.accionFormativa',
+                    'pivot.grupoFormativo.accionFormativa',
+                    'pivot.grupoFormativo.tutor',
+                    'matriculaAutonoma.accionFormativa',
+                    'matriculaAutonoma.tutor',
+                    'ofrecimientos',
+                    'cerradoPor',
+                ]);
 
             if ($this->tutorId !== '') {
-                $q->whereHas('grupoFormativo', fn ($qq) => $qq->where('tutor_id', $this->tutorId));
+                $q->where(function ($qq) {
+                    $qq->whereHas('grupoFormativo', fn ($g) => $g->where('tutor_id', $this->tutorId))
+                       ->orWhereHas('matriculaAutonoma', fn ($m) => $m->where('tutor_id', $this->tutorId));
+                });
             }
             if ($this->empresaId !== '') {
                 $q->whereHas('alumno', fn ($qq) => $qq->where('empresa_id', $this->empresaId));
             }
             if ($this->accionId !== '') {
-                $q->whereHas('grupoFormativo', fn ($qq) => $qq->where('accion_formativa_id', $this->accionId));
+                $q->where(function ($qq) {
+                    $qq->whereHas('grupoFormativo', fn ($g) => $g->where('accion_formativa_id', $this->accionId))
+                       ->orWhereHas('matriculaAutonoma', fn ($m) => $m->where('accion_formativa_id', $this->accionId));
+                });
             }
             if ($this->search !== '') {
                 $term = "%{$this->search}%";

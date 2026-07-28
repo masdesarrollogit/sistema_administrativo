@@ -47,7 +47,9 @@ class NotificarNoConectadosCommand extends Command
             ->with([
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.tutor',
             ])
             ->get();
 
@@ -59,13 +61,13 @@ class NotificarNoConectadosCommand extends Command
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
             $pivot = $snap->pivot;
-            $grupo = $pivot?->grupoFormativo;
+            $matricula = $snap->origen();
 
-            if (!$alumno || !$grupo || !$alumno->email) {
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
-            $inicioGrupo = CarbonImmutable::parse($grupo->fecha_inicio)->startOfDay();
+            $inicioGrupo = CarbonImmutable::parse($snap->fecha_inicio_curso)->startOfDay();
             $diasDesdeInicio = (int) $inicioGrupo->diffInDays($hoy, false);
 
             // Skip grupos que aún no han empezado.
@@ -76,7 +78,7 @@ class NotificarNoConectadosCommand extends Command
 
             $enviados = AlumnoNotificacionLog::query()
                 ->where('alumno_id', $alumno->id)
-                ->where('grupo_formativo_id', $grupo->id)
+                ->delOrigen($snap)
                 ->where('tipo', AlumnoNotificacionLog::TIPO_ALUMNO_NO_CONECTADO)
                 ->where('exitoso', true)
                 ->count();
@@ -87,14 +89,14 @@ class NotificarNoConectadosCommand extends Command
             }
 
             $password = MoodlePassword::generar($alumno->nombre);
-            $username = $pivot->moodle_username ?? $alumno->email;
+            $username = $pivot?->moodle_username ?? $snap->matriculaAutonoma?->moodle_username ?? $alumno->email;
             $intento = $enviados + 1;
 
             $this->line(sprintf(
-                ' · %s (alumno_id=%d, grupo=%d, día %d, intento %d/%d)',
+                ' · %s (alumno_id=%d, grupo=%s, día %d, intento %d/%d)',
                 $alumno->nombre_completo,
                 $alumno->id,
-                $grupo->id,
+                $snap->codigo_grupo ?? '—',
                 $diasDesdeInicio,
                 $intento,
                 $tope,
@@ -107,7 +109,7 @@ class NotificarNoConectadosCommand extends Command
 
             $datosLog = [
                 'alumno_id'         => $alumno->id,
-                'grupo_formativo_id' => $grupo->id,
+                ...$snap->columnasOrigenLog(),
                 'tipo'              => AlumnoNotificacionLog::TIPO_ALUMNO_NO_CONECTADO,
                 'fase'              => 1,
                 'destinatario_email' => $alumno->email,
@@ -123,7 +125,7 @@ class NotificarNoConectadosCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoNoConectadoMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         username: $username,
                         password: $password,
                         diasDesdeInicio: $diasDesdeInicio,

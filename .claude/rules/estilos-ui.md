@@ -24,10 +24,14 @@ Cada tipo de curso del historial del alumno usa un color distintivo:
 | Tipo | Clases Tailwind | Significado |
 |---|---|---|
 | **FUNDAE** | `bg-blue-100 text-blue-700` | Grupo formativo creado en el Panel |
+| **FUNDAE ext.** | `bg-violet-100 text-violet-700 border border-violet-200` | Grupo externo: lo bonifica la empresa cliente en su propia FUNDAE, nosotros solo impartimos |
 | **FUNDAE imp.** | `bg-emerald-100 text-emerald-700` | Participación bonificada importada del XLS FUNDAE |
 | **Autónomo** | `bg-amber-100 text-amber-700` | Matrícula autónoma 2x1 (sin bonificación FUNDAE) |
+| **Particular** | `bg-sky-100 text-sky-700` | Matrícula individual de pago: el alumno costea su curso, sin empresa ni bonificación |
 | **Legacy** | `bg-violet-100 text-violet-700` | Curso del historial webcourses2014 (ya enriquecido) |
 | **No bonificado** | `bg-orange-100 text-amber-700 border border-orange-200` | Alumno autónomo/privado/repaso marcado manualmente para no enriquecer |
+
+**Badge `Externo`** (panel de matriculación y modal Historial, junto al estado del grupo): `bg-violet-100 text-violet-700` en píldora `rounded-full`, con `title` explicando que la bonificación la gestiona la empresa cliente. Va acompañado del código acción/grupo en píldora índigo mono.
 
 **Píldora acción/grupo** (al lado del badge tipo): `bg-indigo-100 text-indigo-700 border border-indigo-200` con `font-mono font-semibold`. Color indigo de marca, uniforme para todos los tipos, independiente del color del tipo.
 

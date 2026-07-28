@@ -121,7 +121,7 @@
                                         </button>
                                     @else
                                         <span class="text-gray-300 text-sm cursor-not-allowed"
-                                              title="Tiene historial formativo ({{ $tutor->grupos_formativos_count }} grupo(s), {{ $tutor->matriculas_autonomas_count }} autónomo(s)). Desactívalo en lugar de eliminarlo.">
+                                              title="Tiene historial formativo ({{ $tutor->grupos_formativos_count }} grupo(s), {{ $tutor->matriculas_autonomas_count }} matrícula(s) individual(es)). Desactívalo en lugar de eliminarlo.">
                                             Eliminar
                                         </span>
                                     @endif

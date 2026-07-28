@@ -43,6 +43,7 @@
                         <option value="">Todos</option>
                         <option value="bonificado">Bonificado</option>
                         <option value="autonomo">Autónomos (2x1)</option>
+                        <option value="particular">Particulares (de pago)</option>
                         <option value="no_bonificado">No bonificado</option>
                     </select>
                 </div>
@@ -115,8 +116,14 @@
                                     @endif
                                     @if($alumno->autonomos_total > 0)
                                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200"
-                                              title="{{ $alumno->autonomos_total }} matrícula{{ $alumno->autonomos_total > 1 ? 's' : '' }} autónoma{{ $alumno->autonomos_total > 1 ? 's' : '' }}">
+                                              title="{{ $alumno->autonomos_total }} matrícula{{ $alumno->autonomos_total > 1 ? 's' : '' }} autónoma{{ $alumno->autonomos_total > 1 ? 's' : '' }} (2x1)">
                                             2x1
+                                        </span>
+                                    @endif
+                                    @if($alumno->particulares_total > 0)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-sky-100 text-sky-700 border border-sky-200"
+                                              title="{{ $alumno->particulares_total }} matrícula{{ $alumno->particulares_total > 1 ? 's' : '' }} de particular (la paga el alumno)">
+                                            Particular
                                         </span>
                                     @endif
                                 </div>
@@ -127,9 +134,16 @@
                             <td class="px-6 py-4 text-sm text-gray-700">{{ $alumno->nif }}</td>
                             <td class="px-6 py-4 text-sm text-gray-700">{{ $alumno->email ?? '—' }}</td>
                             <td class="px-6 py-4">
-                                <div class="text-sm text-gray-700">{{ $alumno->empresa?->razon_social ?? '—' }}</div>
-                                @if($alumno->empresa?->cif)
-                                    <div class="text-xs text-gray-500">{{ $alumno->empresa->cif }}</div>
+                                @if($alumno->empresa)
+                                    <div class="text-sm text-gray-700">{{ $alumno->empresa->razon_social }}</div>
+                                    @if($alumno->empresa->cif)
+                                        <div class="text-xs text-gray-500">{{ $alumno->empresa->cif }}</div>
+                                    @endif
+                                @else
+                                    {{-- Sin empresa en nuestro universo FUNDAE (externa o particular):
+                                         la razón social se guarda como texto libre, solo informativo --}}
+                                    <div class="text-sm text-gray-700">{{ $alumno->empresa_texto ?? '—' }}</div>
+                                    <div class="text-xs text-gray-400 italic">no registrada</div>
                                 @endif
                             </td>
                             <td class="px-6 py-4">
@@ -138,8 +152,10 @@
                                         $cr = $alumno->cursoReciente;
                                         $tipoClases = match($cr['tipo']) {
                                             'FUNDAE'        => 'bg-blue-100 text-blue-700',
+                                            'FUNDAE ext.'   => 'bg-violet-100 text-violet-700 border border-violet-200',
                                             'FUNDAE imp.'   => 'bg-emerald-100 text-emerald-700',
                                             'Autónomo'      => 'bg-amber-100 text-amber-700',
+                                            'Particular'    => 'bg-sky-100 text-sky-700',
                                             'Legacy'        => 'bg-violet-100 text-violet-700',
                                             'No bonificado' => 'bg-orange-100 text-amber-700 border border-orange-200',
                                             default         => 'bg-gray-100 text-gray-700',
@@ -181,7 +197,7 @@
                                             class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
                                         Editar
                                     </button>
-                                    @if($alumno->grupos_total > 0 || $alumno->autonomos_total > 0 || $alumno->bonificados_total > 0 || $alumno->legacy_total > 0)
+                                    @if($alumno->grupos_total > 0 || $alumno->autonomos_total > 0 || $alumno->particulares_total > 0 || $alumno->bonificados_total > 0 || $alumno->legacy_total > 0)
                                         <button wire:click="abrirModalGrupos({{ $alumno->id }})"
                                                 class="text-gray-500 hover:text-gray-700 text-sm">
                                             Historial
@@ -408,7 +424,12 @@
                                     <tr class="hover:bg-gray-50">
                                         <td class="px-4 py-3">
                                             <div class="font-medium text-gray-900">{{ $grupo->accionFormativa?->denominacion ?? '—' }}</div>
-                                            <div class="text-xs text-gray-500">{{ $grupo->accionFormativa?->numero_accion }}/{{ $grupo->id_grupo_fundae }}</div>
+                                            <div class="text-xs text-gray-500">
+                                                {{ $grupo->codigo_grupo_moodle ?? '—' }}
+                                                @if($grupo->gestion_externa)
+                                                    <span class="ml-1 inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">Externo</span>
+                                                @endif
+                                            </div>
                                         </td>
                                         <td class="px-4 py-3 text-gray-700">{{ $grupo->empresa?->razon_social ?? '—' }}</td>
                                         <td class="px-4 py-3 text-gray-700">

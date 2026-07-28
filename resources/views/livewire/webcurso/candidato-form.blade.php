@@ -50,10 +50,12 @@
                     {{-- Datos de Empresa (si aplica) --}}
                     {{-- Datos de Empresa (si aplica) --}}
                     <div>
-                        @if($requiereEmpresa)
+                        {{-- Empresa BONIFICADA: le calculamos el crédito FUNDAE, así que debe
+                             estar ya registrada en `empresas`. Se busca por CIF, no se crea. --}}
+                        @if($buscaEmpresaRegistrada)
                             <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                                 <h3 class="font-semibold text-gray-800 mb-4">Datos de la Empresa</h3>
-                                
+
                                 <p class="text-xs text-gray-500 mb-3">Escribe el CIF: si la empresa está registrada se rellena la razón social. Si no existe, regístrala primero — no se creará automáticamente.</p>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {{-- CIF primero (campo que dispara la búsqueda) --}}
@@ -92,6 +94,43 @@
                                                class="w-full rounded-md border-gray-300 bg-gray-100 text-gray-700 shadow-sm cursor-not-allowed"
                                                placeholder="Se rellena al encontrar el CIF"
                                                readonly>
+                                        @error('razon_social_empresa') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        {{-- Empresa EXTERNA: bonifica por su cuenta y no calculamos su saldo,
+                             así que no se registra en `empresas`. Solo tomamos nota. --}}
+                        @if($empresaExternaLibre)
+                            <div class="mb-6 p-4 bg-violet-50 rounded-lg border border-violet-200">
+                                <h3 class="font-semibold text-gray-800 mb-1">Datos de la Empresa</h3>
+
+                                <p class="text-xs text-gray-600 mb-3">
+                                    Esta empresa gestiona su propia bonificación ante FUNDAE. Como no calculamos su
+                                    crédito, <strong>no se da de alta en el listado de Empresas</strong>: estos datos se
+                                    guardan solo para nuestro control.
+                                </p>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            CIF <span class="text-red-500">*</span>
+                                        </label>
+                                        <input type="text"
+                                               wire:model="cif_empresa"
+                                               class="w-full rounded-md border-gray-300 shadow-sm focus:border-violet-500 focus:ring-violet-500 uppercase"
+                                               placeholder="A12345678">
+                                        @error('cif_empresa') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            Razón Social <span class="text-red-500">*</span>
+                                        </label>
+                                        <input type="text"
+                                               wire:model="razon_social_empresa"
+                                               class="w-full rounded-md border-gray-300 shadow-sm focus:border-violet-500 focus:ring-violet-500"
+                                               placeholder="Nombre de la empresa">
                                         @error('razon_social_empresa') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
                                     </div>
                                 </div>

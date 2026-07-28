@@ -32,7 +32,9 @@ class NotificarAptoCommand extends Command
         $yaNotificados = AlumnoNotificacionLog::query()
             ->where('tipo', AlumnoNotificacionLog::TIPO_ALUMNO_APTO)
             ->where('exitoso', true)
-            ->selectRaw('CONCAT(alumno_id, "-", grupo_formativo_id) as clave')
+            ->selectRaw("CONCAT(alumno_id, '-', CASE WHEN grupo_formativo_id IS NOT NULL"
+                . " THEN CONCAT('grupo:', grupo_formativo_id)"
+                . " ELSE CONCAT('autonoma:', matricula_autonoma_id) END) as clave")
             ->pluck('clave')
             ->all();
         $yaNotificadosSet = array_flip($yaNotificados);
@@ -43,6 +45,7 @@ class NotificarAptoCommand extends Command
             ->with([
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
             ])
             ->get();
 
@@ -57,12 +60,12 @@ class NotificarAptoCommand extends Command
 
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
-            $grupo = $snap->pivot?->grupoFormativo;
-            if (!$alumno || !$grupo || !$alumno->email) {
+            $matricula = $snap->origen();
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
-            $clave = "{$alumno->id}-{$grupo->id}";
+            $clave = "{$alumno->id}-{$matricula->claveOrigen()}";
             if (isset($yaNotificadosSet[$clave])) {
                 $omitidosYaNotificados++;
                 continue;
@@ -73,10 +76,10 @@ class NotificarAptoCommand extends Command
             $notaPct = $snap->nota_total_porcentaje;
 
             $this->line(sprintf(
-                ' · %s (alumno_id=%d, grupo=%d, nota=%s)',
+                ' · %s (alumno_id=%d, grupo=%s, nota=%s)',
                 $alumno->nombre_completo,
                 $alumno->id,
-                $grupo->id,
+                $snap->codigo_grupo ?? '—',
                 $notaPct !== null ? "{$notaPct}%" : 'sin nota',
             ));
 
@@ -87,7 +90,7 @@ class NotificarAptoCommand extends Command
 
             $datosLog = [
                 'alumno_id'          => $alumno->id,
-                'grupo_formativo_id' => $grupo->id,
+                ...$snap->columnasOrigenLog(),
                 'tipo'               => AlumnoNotificacionLog::TIPO_ALUMNO_APTO,
                 'fase'               => 6,
                 'destinatario_email' => $alumno->email,
@@ -103,7 +106,7 @@ class NotificarAptoCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoAptoMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         notaTotal: $notaTotal,
                         notaMax: $notaMax,
                         notaPorcentaje: $notaPct,

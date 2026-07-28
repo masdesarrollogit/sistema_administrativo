@@ -221,11 +221,16 @@ class AlumnosIndex extends Component
         foreach ($a->gruposFormativos()->with('accionFormativa')
                     ->where('fecha_inicio', '<=', $fin)
                     ->where('fecha_fin', '>=', $inicio)->get() as $g) {
+            // En gestión externa el acción/grupo es el que nos dio la empresa cliente (texto libre).
+            $accionGrupo = $g->gestion_externa
+                ? array_pad(explode('/', (string) $g->codigo_grupo_externo, 2), 2, null)
+                : [$g->accionFormativa?->numero_accion, $g->id_grupo_fundae];
+
             $candidatos->push([
-                'tipo'         => 'FUNDAE',
+                'tipo'         => $g->gestion_externa ? 'FUNDAE ext.' : 'FUNDAE',
                 'denominacion' => $g->accionFormativa?->denominacion_limpia ?? $g->accionFormativa?->denominacion ?? '—',
-                'accion'       => $g->accionFormativa?->numero_accion,
-                'grupo'        => $g->id_grupo_fundae,
+                'accion'       => $accionGrupo[0] ?: null,
+                'grupo'        => $accionGrupo[1] ?: null,
                 'fecha_inicio' => $g->fecha_inicio,
                 'fecha_fin'    => $g->fecha_fin,
             ]);
@@ -253,7 +258,7 @@ class AlumnosIndex extends Component
                     ->where('fecha_inicio', '<=', $fin)
                     ->where('fecha_fin', '>=', $inicio)->get() as $ma) {
             $candidatos->push([
-                'tipo'         => 'Autónomo',
+                'tipo'         => $ma->esParticular() ? 'Particular' : 'Autónomo',
                 'denominacion' => $ma->accionFormativa?->denominacion_limpia ?? $ma->accionFormativa?->denominacion ?? '—',
                 'accion'       => $ma->accionFormativa?->numero_accion,
                 'grupo'        => null,
@@ -294,7 +299,10 @@ class AlumnosIndex extends Component
                 'gruposFormativos as grupos_total',
                 'gruposFormativos as grupos_activos' => fn ($q) =>
                     $q->whereIn('estado', ['abierto', 'comunicado', 'en_curso']),
-                'matriculasAutonomas as autonomos_total',
+                // Comparten tabla pero se cuentan por separado: el 2x1 es gratis y de empresa,
+                // el particular lo paga el alumno y no tiene empresa.
+                'matriculasAutonomas as autonomos_total' => fn ($q) => $q->autonomos(),
+                'matriculasAutonomas as particulares_total' => fn ($q) => $q->particulares(),
                 'participantesBonificados as bonificados_total',
                 'cursosLegacy as legacy_total',
             ]);
@@ -321,7 +329,10 @@ class AlumnosIndex extends Component
         }
 
         if ($this->filtroTipo === 'autonomo') {
-            $query->whereHas('matriculasAutonomas');
+            // Solo 2x1: el particular comparte tabla pero es otra cosa (paga y no tiene empresa)
+            $query->whereHas('matriculasAutonomas', fn ($q) => $q->autonomos());
+        } elseif ($this->filtroTipo === 'particular') {
+            $query->whereHas('matriculasAutonomas', fn ($q) => $q->particulares());
         } elseif ($this->filtroTipo === 'bonificado') {
             // Aplica el rango del año filtrado a las subqueries (si filtroAno está activo)
             // para que la exclusión de no_bonificado también respete el año.

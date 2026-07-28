@@ -41,7 +41,9 @@ class NotificarRiesgoCriticoCommand extends Command
             ->with([
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.tutor',
             ])
             ->get();
 
@@ -57,13 +59,13 @@ class NotificarRiesgoCriticoCommand extends Command
 
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
-            $grupo = $snap->pivot?->grupoFormativo;
+            $matricula = $snap->origen();
 
-            if (!$alumno || !$grupo || !$alumno->email) {
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
-            $finCurso = CarbonImmutable::parse($grupo->fecha_fin)->startOfDay();
+            $finCurso = CarbonImmutable::parse($snap->fecha_fin_curso)->startOfDay();
             if ($finCurso->lessThan($hoy)) {
                 $omitidosCursoFinalizado++;
                 continue;
@@ -72,7 +74,7 @@ class NotificarRiesgoCriticoCommand extends Command
             // Throttle (default 7 días) por alumno+grupo
             $ultimoEnvio = AlumnoNotificacionLog::query()
                 ->where('alumno_id', $alumno->id)
-                ->where('grupo_formativo_id', $grupo->id)
+                ->delOrigen($snap)
                 ->where('tipo', AlumnoNotificacionLog::TIPO_ALUMNO_RIESGO_CRITICO)
                 ->where('exitoso', true)
                 ->orderByDesc('enviado_at')
@@ -88,10 +90,10 @@ class NotificarRiesgoCriticoCommand extends Command
             $pctTiempo = $snap->pct_tiempo_transcurrido !== null ? (float) $snap->pct_tiempo_transcurrido : null;
 
             $this->line(sprintf(
-                ' · %s (alumno_id=%d, grupo=%d, nota=%s, tiempo=%s%%, %d días restantes)',
+                ' · %s (alumno_id=%d, grupo=%s, nota=%s, tiempo=%s%%, %d días restantes)',
                 $alumno->nombre_completo,
                 $alumno->id,
-                $grupo->id,
+                $snap->codigo_grupo ?? '—',
                 $notaPct !== null ? "{$notaPct}%" : 'sin nota',
                 $pctTiempo !== null ? number_format($pctTiempo, 0) : '?',
                 $diasRestantes,
@@ -104,7 +106,7 @@ class NotificarRiesgoCriticoCommand extends Command
 
             $datosLog = [
                 'alumno_id'          => $alumno->id,
-                'grupo_formativo_id' => $grupo->id,
+                ...$snap->columnasOrigenLog(),
                 'tipo'               => AlumnoNotificacionLog::TIPO_ALUMNO_RIESGO_CRITICO,
                 'fase'               => 3,
                 'destinatario_email' => $alumno->email,
@@ -122,7 +124,7 @@ class NotificarRiesgoCriticoCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoRiesgoCriticoMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         notaTotal: $snap->nota_total !== null ? (float) $snap->nota_total : null,
                         notaMax: $snap->nota_max !== null ? (float) $snap->nota_max : null,
                         notaPorcentaje: $notaPct,

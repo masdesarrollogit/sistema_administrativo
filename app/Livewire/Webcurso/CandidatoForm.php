@@ -117,7 +117,10 @@ class CandidatoForm extends Component
     public function buscarEmpresaPorCif(): void
     {
         $tipoCandidato = TipoCandidato::find($this->tipo_candidato_id);
-        if (!$tipoCandidato || !in_array($tipoCandidato->codigo, ['empresa_organizadora', 'empresa_externa'])) {
+
+        // Solo las bonificadas se buscan: son las únicas que registramos en `empresas`
+        // porque les calculamos el crédito. Las externas se teclean a mano.
+        if ($tipoCandidato?->codigo !== 'empresa_organizadora') {
             return;
         }
 
@@ -178,15 +181,15 @@ class CandidatoForm extends Component
             $empresaId = null;
             $empresaExternaId = null;
 
-            // La empresa DEBE existir previamente. NUNCA se crea desde aquí.
-            // Si el CIF no corresponde a una empresa registrada, no se crea el candidato.
-            if (in_array($tipoCandidato->codigo, ['empresa_organizadora', 'empresa_externa'])) {
+            // Empresa BONIFICADA: debe existir ya en `empresas`, porque su crédito FUNDAE
+            // lo calculamos nosotros a partir del XLS. NUNCA se crea desde aquí.
+            if ($tipoCandidato->codigo === 'empresa_organizadora') {
                 if (!trim((string) $this->cif_empresa)) {
                     $this->addError('cif_empresa', 'El CIF es obligatorio.');
                     return;
                 }
 
-                $empresaEncontrada = $this->buscarEmpresaModelo($tipoCandidato->codigo, $this->cif_empresa);
+                $empresaEncontrada = $this->buscarEmpresaModelo('empresa_organizadora', $this->cif_empresa);
 
                 if (!$empresaEncontrada) {
                     $this->empresaEncontrada = false;
@@ -196,12 +199,32 @@ class CandidatoForm extends Component
 
                 // Sincroniza la razón social mostrada con la de la empresa real
                 $this->razon_social_empresa = $empresaEncontrada->razon_social;
+                $empresaId = $empresaEncontrada->id;
+            }
 
-                if ($tipoCandidato->codigo === 'empresa_organizadora') {
-                    $empresaId = $empresaEncontrada->id;
-                } else {
-                    $empresaExternaId = $empresaEncontrada->id;
+            // Empresa EXTERNA: gestiona su propia bonificación, no calculamos su saldo y
+            // por tanto no entra en `empresas`. Sus datos se teclean y se guardan en
+            // `empresas_externas`, que es solo un registro nuestro de control.
+            if ($tipoCandidato->codigo === 'empresa_externa') {
+                $cif = strtoupper(preg_replace('/[\s\-\.]+/', '', trim((string) $this->cif_empresa)));
+                $razonSocial = trim((string) $this->razon_social_empresa);
+
+                if ($cif === '') {
+                    $this->addError('cif_empresa', 'El CIF de la empresa es obligatorio.');
+                    return;
                 }
+                if ($razonSocial === '') {
+                    $this->addError('razon_social_empresa', 'La razón social es obligatoria.');
+                    return;
+                }
+
+                $externa = EmpresaExterna::updateOrCreate(
+                    ['cif' => $cif],
+                    ['razon_social' => $razonSocial],
+                );
+
+                $this->cif_empresa = $cif;
+                $empresaExternaId = $externa->id;
             }
 
             $data = [
@@ -240,12 +263,18 @@ class CandidatoForm extends Component
         $tiposCandidato = TipoCandidato::activos()->get();
         $tipoCandidatoSeleccionado = TipoCandidato::find($this->tipo_candidato_id);
         
-        $requiereEmpresa = $tipoCandidatoSeleccionado && 
-                          in_array($tipoCandidatoSeleccionado->codigo, ['empresa_organizadora', 'empresa_externa']);
+        $codigo = $tipoCandidatoSeleccionado?->codigo;
 
         return view('livewire.webcurso.candidato-form', [
             'tiposCandidato' => $tiposCandidato,
-            'requiereEmpresa' => $requiereEmpresa,
+            'requiereEmpresa' => in_array($codigo, ['empresa_organizadora', 'empresa_externa']),
+            // Bonificada: la empresa debe estar en `empresas`, porque le calculamos el crédito
+            // FUNDAE. Por eso se busca por CIF y no se puede crear desde aquí.
+            'buscaEmpresaRegistrada' => $codigo === 'empresa_organizadora',
+            // Externa: gestiona su propia bonificación y nosotros no calculamos su saldo,
+            // así que NO entra en `empresas`. Se teclean sus datos y se guardan en
+            // `empresas_externas`, que es un registro nuestro de control.
+            'empresaExternaLibre' => $codigo === 'empresa_externa',
         ])->layout('layouts.app', ['title' => ($this->isEdit ? 'Editar' : 'Nuevo') . ' Candidato - WebCurso']);
     }
 

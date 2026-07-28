@@ -376,8 +376,8 @@
             </div>
         </div>
 
-        {{-- Bloque de Matriculación (solo cuando candidato está completo y tiene empresa) --}}
-        @if($candidato->estatus === 'completo' && $candidato->empresa_id)
+        {{-- Bloque de Matriculación: empresa propia, empresa externa o particular (sin empresa) --}}
+        @if($candidato->estatus === 'completo' && ($candidato->empresa_id || $candidato->empresa_externa_id || $candidato->tipoCandidato?->codigo === 'particular'))
             <div class="mt-8">
                 <div class="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
                     <h2 class="text-xl font-bold text-emerald-800">Matriculacion</h2>

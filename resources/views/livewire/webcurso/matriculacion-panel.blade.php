@@ -9,7 +9,9 @@
 
     {{-- ═══════════════════════════════════════════════ --}}
     {{-- GRUPOS FORMATIVOS                              --}}
+    {{-- Un particular nunca lleva grupo FUNDAE          --}}
     {{-- ═══════════════════════════════════════════════ --}}
+    @unless($this->esCandidatoParticular())
     <div class="bg-white shadow-sm sm:rounded-lg p-6">
         <div class="flex items-center justify-between mb-4">
             <h3 class="text-lg font-bold text-gray-800">Grupos Formativos</h3>
@@ -22,6 +24,37 @@
         @if($mostrarFormGrupo)
             <div class="mb-4 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
                 <h4 class="font-semibold text-gray-800 mb-3">Crear Grupo Formativo</h4>
+
+                {{-- Gestión externa: la bonificación la tramita la propia empresa cliente --}}
+                <div class="mb-4 p-3 rounded-lg border {{ $nuevoGestionExterna ? 'bg-violet-50 border-violet-200' : 'bg-white border-gray-200' }}">
+                    <label class="flex items-start gap-2 {{ $this->esCandidatoExterno() ? 'cursor-default' : 'cursor-pointer' }}">
+                        <input type="checkbox" wire:model.live="nuevoGestionExterna"
+                               @disabled($this->esCandidatoExterno())
+                               class="mt-0.5 rounded border-gray-300 text-violet-600 focus:ring-violet-500">
+                        <span class="text-sm text-gray-800">
+                            <span class="font-medium">La bonificación la gestiona la empresa cliente</span>
+                            <span class="block text-xs text-gray-500 mt-0.5">
+                                Ellos comunican la acción y el grupo en su propia FUNDAE. Nosotros solo impartimos el curso:
+                                no se genera ID de grupo, ni XML de inicio, ni se sube el PDF de notificación.
+                                @if($this->esCandidatoExterno())
+                                    <span class="text-violet-700 font-medium">Este candidato es de empresa externa, así que siempre es gestión externa.</span>
+                                @endif
+                            </span>
+                        </span>
+                    </label>
+
+                    @if($nuevoGestionExterna)
+                        <div class="mt-3">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Acción/Grupo FUNDAE de la empresa *</label>
+                            <input type="text" wire:model="nuevoCodigoGrupoExterno" maxlength="50"
+                                   class="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-violet-500 focus:border-violet-500"
+                                   placeholder="Ej: 241/3">
+                            <p class="text-xs text-gray-500 mt-1">Tal cual nos lo facilita la empresa. Se usará como nombre del grupo en Moodle.</p>
+                            @error('nuevoCodigoGrupoExterno') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                    @endif
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {{-- Accion formativa --}}
                     <div class="relative">
@@ -137,7 +170,17 @@
                                         <span class="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full {{ $coloresEstado[$grupo->estado] ?? '' }}">
                                             {{ ucfirst($grupo->estado) }}
                                         </span>
-                                        @if($grupo->codigo_fundae)
+                                        @if($grupo->gestion_externa)
+                                            <span class="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-violet-100 text-violet-700"
+                                                  title="La bonificación la gestiona la empresa cliente en su propia FUNDAE">
+                                                Externo
+                                            </span>
+                                            @if($grupo->codigo_grupo_externo)
+                                                <span class="inline-flex px-2 py-0.5 text-xs font-mono font-semibold rounded bg-indigo-100 text-indigo-700 border border-indigo-200">
+                                                    {{ $grupo->codigo_grupo_externo }}
+                                                </span>
+                                            @endif
+                                        @elseif($grupo->codigo_fundae)
                                             <span class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">FUNDAE: {{ $grupo->codigo_fundae }}</span>
                                         @endif
                                     </div>
@@ -176,7 +219,8 @@
                                             Eliminar
                                         </button>
                                     @endif
-                                    @if(in_array($grupo->estado, ['abierto', 'comunicado']))
+                                    {{-- Trámites de NUESTRA FUNDAE: no aplican a grupos de gestión externa --}}
+                                    @if(!$grupo->gestion_externa && in_array($grupo->estado, ['abierto', 'comunicado']))
                                         @if(!$grupo->id_grupo_fundae)
                                             <button wire:click="generarIdGrupoFundae({{ $grupo->id }})"
                                                     class="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs hover:bg-amber-200">
@@ -194,7 +238,7 @@
                                             </span>
                                         @endif
                                     @endif
-                                    @if($grupo->estado === 'abierto' && $grupo->id_grupo_fundae && $grupo->alumnos->count() > 0)
+                                    @if(!$grupo->gestion_externa && $grupo->estado === 'abierto' && $grupo->id_grupo_fundae && $grupo->alumnos->count() > 0)
                                         @if($gruposEnFundae[$grupo->id] ?? false)
                                             {{-- Grupo ya confirmado en FUNDAE (tabla grupos importada) --}}
                                             <button wire:click="marcarComunicado({{ $grupo->id }})"
@@ -210,7 +254,8 @@
                                             </button>
                                         @endif
                                     @endif
-                                    @if($grupo->estado === 'comunicado')
+                                    {{-- Matriculación: los grupos externos no pasan por "comunicado" (no hay PDF FUNDAE nuestro) --}}
+                                    @if($grupo->estado === 'comunicado' || ($grupo->gestion_externa && $grupo->estado === 'abierto' && $grupo->alumnos->count() > 0))
                                         @if($grupo->accionFormativa->codigo_plataforma === 'a')
                                             {{-- Plataforma aulasystem: matriculación manual --}}
                                             <button wire:click="marcarMatriculadoAulasystem({{ $grupo->id }})"
@@ -881,25 +926,45 @@
             <p class="text-gray-500 text-sm text-center py-6">No hay grupos formativos. Crea uno para empezar.</p>
         @endif
     </div>
+    @endunless
 
     {{-- ═══════════════════════════════════════════════ --}}
-    {{-- AUTÓNOMOS (2x1)                                --}}
+    {{-- MATRÍCULAS INDIVIDUALES (sin grupo FUNDAE)     --}}
+    {{-- Autónomos 2x1 (gratis) o particulares (de pago) --}}
     {{-- ═══════════════════════════════════════════════ --}}
+    @php $esParticular = $this->esCandidatoParticular(); @endphp
     <div class="bg-white shadow-sm sm:rounded-lg p-6">
         <div class="flex items-center justify-between mb-4">
             <h3 class="text-lg font-bold text-gray-800">
-                Autónomos
-                <span class="text-sm font-normal text-gray-500 ml-1">(oferta 2x1)</span>
+                {{ $esParticular ? 'Particulares' : 'Autónomos' }}
+                <span class="text-sm font-normal text-gray-500 ml-1">
+                    {{ $esParticular ? '(paga el alumno · sin bonificación)' : '(oferta 2x1)' }}
+                </span>
             </h3>
-            <button wire:click="abrirFormAutonomo" class="px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">
-                + Nuevo Autónomo
+            <button wire:click="abrirFormAutonomo"
+                    class="px-3 py-1.5 text-white rounded-lg text-sm font-medium {{ $esParticular ? 'bg-sky-600 hover:bg-sky-700' : 'bg-amber-600 hover:bg-amber-700' }}">
+                + {{ $esParticular ? 'Nuevo Particular' : 'Nuevo Autónomo' }}
             </button>
         </div>
 
-        {{-- Formulario crear matrícula autónoma --}}
+        @if($esParticular)
+            <p class="mb-4 text-xs text-gray-500 bg-sky-50 border border-sky-200 rounded-lg p-3">
+                El particular paga el curso, así que no lleva grupo formativo ni se comunica a FUNDAE.
+                Puede empezar cuando quiera: la fecha de inicio es libre. Su seguimiento de notas y avisos
+                funciona igual que el de un bonificado.
+                <span class="block mt-1 text-gray-600">
+                    <strong>El alumno se da de alta aquí mismo</strong>: pulsa «+ Nuevo Particular» y rellena sus datos
+                    dentro del formulario de matrícula. No hay un paso separado para crearlo.
+                </span>
+            </p>
+        @endif
+
+        {{-- Formulario crear matrícula individual --}}
         @if($mostrarFormAutonomo)
-            <div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <h4 class="font-semibold text-gray-800 mb-3">Nueva matrícula de autónomo</h4>
+            <div class="mb-4 p-4 rounded-lg border {{ $esParticular ? 'bg-sky-50 border-sky-200' : 'bg-amber-50 border-amber-200' }}">
+                <h4 class="font-semibold text-gray-800 mb-3">
+                    {{ $esParticular ? 'Nueva matrícula de particular' : 'Nueva matrícula de autónomo' }}
+                </h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                     {{-- Acción formativa --}}
@@ -950,7 +1015,7 @@
 
                         @if(!$autonomoNuevoAlumno)
                             <select wire:model="autonomoAlumnoId" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
-                                <option value="">Seleccionar alumno de la empresa...</option>
+                                <option value="">{{ $esParticular ? 'Seleccionar alumno ya registrado...' : 'Seleccionar alumno de la empresa...' }}</option>
                                 @foreach($alumnosParaAutonomo as $al)
                                     <option value="{{ $al->id }}">{{ $al->nombre_completo }} — {{ $al->nif }} — {{ $al->email ?? 'sin email' }}</option>
                                 @endforeach
@@ -986,18 +1051,31 @@
                                     <label class="block text-xs font-medium text-gray-600 mb-1">Teléfono</label>
                                     <input type="text" wire:model="autonomoTelefono" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm">
                                 </div>
+                                @if($esParticular)
+                                    <div class="col-span-2 md:col-span-3">
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">Empresa</label>
+                                        <input type="text" wire:model="autonomoEmpresaTexto" maxlength="255"
+                                               class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                                               placeholder="Dónde trabaja el alumno (opcional)">
+                                        <p class="text-xs text-gray-500 mt-1">
+                                            Solo para nuestro control. No se registra como empresa cliente ni se usa para bonificar.
+                                        </p>
+                                        @error('autonomoEmpresaTexto') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                    </div>
+                                @endif
                             </div>
                         @endif
                     </div>
 
                     {{-- Fechas --}}
                     <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Fecha Inicio</label>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Fecha Inicio *</label>
                         <input type="date" wire:model="autonomoFechaInicio" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
+                        <p class="text-xs text-gray-400 mt-1">Libre: puede empezar mañana mismo</p>
                         @error('autonomoFechaInicio') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
                     <div>
-                        <label class="block text-xs font-medium text-gray-700 mb-1">Fecha Fin</label>
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Fecha Fin *</label>
                         <input type="date" wire:model="autonomoFechaFin" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500">
                         @error('autonomoFechaFin') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
@@ -1009,7 +1087,10 @@
                     </div>
                 </div>
                 <div class="flex gap-2 mt-4">
-                    <button wire:click="crearMatriculaAutonoma" class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm font-medium">Crear Matrícula</button>
+                    <button wire:click="crearMatriculaAutonoma"
+                            class="px-4 py-2 text-white rounded-lg text-sm font-medium {{ $esParticular ? 'bg-sky-600 hover:bg-sky-700' : 'bg-amber-600 hover:bg-amber-700' }}">
+                        Crear Matrícula
+                    </button>
                     <button wire:click="$set('mostrarFormAutonomo', false)" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Cancelar</button>
                 </div>
             </div>
@@ -1037,10 +1118,30 @@
                                     <span class="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full {{ $coloresEstadoAut[$ma->estado] ?? '' }}">
                                         {{ ucfirst($ma->estado) }}
                                     </span>
-                                    <span class="inline-flex px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-700">
-                                        Autónomo
+                                    {{-- La modalidad la marca la propia matrícula, no el candidato --}}
+                                    <span class="inline-flex px-2 py-0.5 text-xs font-medium rounded-full
+                                        {{ $ma->esParticular() ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700' }}">
+                                        {{ $ma->esParticular() ? 'Particular' : 'Autónomo 2x1' }}
                                     </span>
                                 </div>
+
+                                {{-- Datos de contacto del alumno --}}
+                                <div class="text-xs text-gray-600 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                                    @if($ma->alumno->email)
+                                        <span>✉ <a href="mailto:{{ $ma->alumno->email }}" class="hover:text-indigo-600">{{ $ma->alumno->email }}</a></span>
+                                    @else
+                                        <span class="text-red-600">✉ sin correo — no podrá recibir credenciales</span>
+                                    @endif
+                                    @if($ma->alumno->telefono)
+                                        <span>📞 <a href="tel:{{ $ma->alumno->telefono_e164 ?? $ma->alumno->telefono }}" class="hover:text-indigo-600">{{ $ma->alumno->telefono }}</a></span>
+                                    @endif
+                                    @if($ma->alumno->empresa)
+                                        <span>🏢 {{ $ma->alumno->empresa->razon_social }}</span>
+                                    @elseif($ma->alumno->empresa_texto)
+                                        <span>🏢 {{ $ma->alumno->empresa_texto }}</span>
+                                    @endif
+                                </div>
+
                                 <div class="text-sm text-gray-600 mt-1">
                                     #{{ $ma->accionFormativa->numero_accion }} — {{ Str::limit($ma->accionFormativa->denominacion_limpia, 50) }}
                                     &nbsp;|&nbsp; {{ $ma->tutor->nombre_completo }}
@@ -1051,8 +1152,19 @@
                                 @if($ma->estado === 'error' && $ma->ultimo_error_moodle)
                                     <div class="text-xs text-red-600 mt-1">Error: {{ Str::limit($ma->ultimo_error_moodle, 120) }}</div>
                                 @endif
-                                @if($ma->moodle_username)
-                                    <div class="text-xs text-gray-400 mt-1">Moodle: {{ $ma->moodle_username }}</div>
+
+                                {{-- Credenciales una vez matriculado en Moodle --}}
+                                @if($ma->estado === 'matriculado')
+                                    <div class="mt-2 text-xs bg-green-50 border border-green-200 rounded p-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                        <span class="text-green-800 font-medium">Matriculado en Moodle</span>
+                                        <span class="text-gray-600">Usuario: <span class="font-mono">{{ $ma->moodle_username ?? $ma->alumno->email }}</span></span>
+                                        <span class="text-gray-600">Contraseña: <span class="font-mono">{{ \App\Support\MoodlePassword::generar($ma->alumno->nombre) }}</span></span>
+                                        @if($ma->moodle_course_id)
+                                            <a href="{{ rtrim(config('moodle.public_url', 'https://aula.1curso.com'), '/') }}/course/view.php?id={{ $ma->moodle_course_id }}"
+                                               target="_blank" rel="noopener"
+                                               class="text-indigo-600 hover:text-indigo-800 underline underline-offset-2">Ver curso ↗</a>
+                                        @endif
+                                    </div>
                                 @endif
                             </div>
 
@@ -1087,7 +1199,7 @@
                                 @endif
                                 @if($ma->estado === 'pendiente')
                                     <button wire:click="eliminarMatriculaAutonoma({{ $ma->id }})"
-                                            wire:confirm="¿Eliminar esta matrícula de autónomo?"
+                                            wire:confirm="¿Eliminar esta matrícula?"
                                             class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs hover:bg-red-200">
                                         Eliminar
                                     </button>
@@ -1139,7 +1251,10 @@
                 @endforeach
             </div>
         @else
-            <p class="text-gray-500 text-sm text-center py-4">No hay matrículas de autónomos. Crea una para empezar.</p>
+            <p class="text-gray-500 text-sm text-center py-4">
+                No hay matrículas de {{ $esParticular ? 'particulares' : 'autónomos' }}.
+                Pulsa «+ {{ $esParticular ? 'Nuevo Particular' : 'Nuevo Autónomo' }}» para crear una.
+            </p>
         @endif
     </div>
 </div>

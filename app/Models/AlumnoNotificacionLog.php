@@ -27,6 +27,7 @@ class AlumnoNotificacionLog extends Model
         'alumno_id',
         'tutor_id',
         'grupo_formativo_id',
+        'matricula_autonoma_id',
         'tipo',
         'fase',
         'canal',
@@ -76,8 +77,34 @@ class AlumnoNotificacionLog extends Model
         ]));
     }
 
+    public function matriculaAutonoma(): BelongsTo
+    {
+        return $this->belongsTo(MatriculaAutonoma::class, 'matricula_autonoma_id');
+    }
+
     public function scopeAlumnoNoConectado($query)
     {
         return $query->where('tipo', self::TIPO_ALUMNO_NO_CONECTADO);
+    }
+
+    /**
+     * Restringe la consulta al mismo origen (grupo formativo o matrícula individual)
+     * del snapshot dado. Los throttles de los crones filtran por aquí, en lugar de
+     * asumir que todo aviso cuelga de un grupo formativo.
+     */
+    public function scopeDelOrigen($query, AlumnoProgresoMoodle $snapshot)
+    {
+        $origen = $snapshot->columnasOrigenLog();
+
+        if ($origen['grupo_formativo_id']) {
+            return $query->where('grupo_formativo_id', $origen['grupo_formativo_id']);
+        }
+
+        if ($origen['matricula_autonoma_id']) {
+            return $query->where('matricula_autonoma_id', $origen['matricula_autonoma_id']);
+        }
+
+        // Sin origen identificable no debe coincidir con nada.
+        return $query->whereRaw('1 = 0');
     }
 }

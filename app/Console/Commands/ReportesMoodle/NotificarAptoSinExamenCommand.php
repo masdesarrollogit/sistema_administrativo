@@ -41,7 +41,9 @@ class NotificarAptoSinExamenCommand extends Command
             ->with([
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.tutor',
             ])
             ->get();
 
@@ -57,12 +59,12 @@ class NotificarAptoSinExamenCommand extends Command
 
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
-            $grupo = $snap->pivot?->grupoFormativo;
-            if (!$alumno || !$grupo || !$alumno->email) {
+            $matricula = $snap->origen();
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
-            $finCurso = CarbonImmutable::parse($grupo->fecha_fin)->startOfDay();
+            $finCurso = CarbonImmutable::parse($snap->fecha_fin_curso)->startOfDay();
             if ($finCurso->lessThan($hoy)) {
                 $omitidosCursoFinalizado++;
                 continue;
@@ -70,7 +72,7 @@ class NotificarAptoSinExamenCommand extends Command
 
             $ultimoEnvio = AlumnoNotificacionLog::query()
                 ->where('alumno_id', $alumno->id)
-                ->where('grupo_formativo_id', $grupo->id)
+                ->delOrigen($snap)
                 ->where('tipo', AlumnoNotificacionLog::TIPO_ALUMNO_APTO_SIN_EXAMEN)
                 ->where('exitoso', true)
                 ->orderByDesc('enviado_at')
@@ -87,10 +89,10 @@ class NotificarAptoSinExamenCommand extends Command
             $notaPct = $snap->nota_total_porcentaje;
 
             $this->line(sprintf(
-                ' · %s (alumno_id=%d, grupo=%d, nota=%s, %d días restantes)',
+                ' · %s (alumno_id=%d, grupo=%s, nota=%s, %d días restantes)',
                 $alumno->nombre_completo,
                 $alumno->id,
-                $grupo->id,
+                $snap->codigo_grupo ?? '—',
                 $notaPct !== null ? "{$notaPct}%" : 'sin nota',
                 $diasRestantes,
             ));
@@ -102,7 +104,7 @@ class NotificarAptoSinExamenCommand extends Command
 
             $datosLog = [
                 'alumno_id'          => $alumno->id,
-                'grupo_formativo_id' => $grupo->id,
+                ...$snap->columnasOrigenLog(),
                 'tipo'               => AlumnoNotificacionLog::TIPO_ALUMNO_APTO_SIN_EXAMEN,
                 'fase'               => 5,
                 'destinatario_email' => $alumno->email,
@@ -119,7 +121,7 @@ class NotificarAptoSinExamenCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoAptoSinExamenMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         notaTotal: $notaTotal,
                         notaMax: $notaMax,
                         notaPorcentaje: $notaPct,

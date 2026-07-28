@@ -40,7 +40,9 @@ class NotificarPreCierreCommand extends Command
             ->with([
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.tutor',
             ])
             ->get();
 
@@ -55,15 +57,15 @@ class NotificarPreCierreCommand extends Command
 
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
-            $grupo = $snap->pivot?->grupoFormativo;
-            if (!$alumno || !$grupo || !$alumno->email) {
+            $matricula = $snap->origen();
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
             // Throttle 23h por alumno+grupo
             $ultimoEnvio = AlumnoNotificacionLog::query()
                 ->where('alumno_id', $alumno->id)
-                ->where('grupo_formativo_id', $grupo->id)
+                ->delOrigen($snap)
                 ->where('tipo', AlumnoNotificacionLog::TIPO_ALUMNO_PRE_CIERRE)
                 ->where('exitoso', true)
                 ->orderByDesc('enviado_at')
@@ -74,7 +76,7 @@ class NotificarPreCierreCommand extends Command
                 continue;
             }
 
-            $finCurso = CarbonImmutable::parse($grupo->fecha_fin)->endOfDay();
+            $finCurso = CarbonImmutable::parse($snap->fecha_fin_curso)->endOfDay();
             $horasRestantes = max(0, (int) floor(CarbonImmutable::now('Europe/Madrid')->diffInSeconds($finCurso, false) / 3600));
             $notaTotal = $snap->nota_total !== null ? (float) $snap->nota_total : null;
             $notaMax = $snap->nota_max !== null ? (float) $snap->nota_max : null;
@@ -82,10 +84,10 @@ class NotificarPreCierreCommand extends Command
             $haAlcanzadoUmbral = $notaTotal !== null && $notaTotal >= $umbralAprobado;
 
             $this->line(sprintf(
-                ' · %s (alumno_id=%d, grupo=%d, %dh restantes, nota=%s, umbral=%s)',
+                ' · %s (alumno_id=%d, grupo=%s, %dh restantes, nota=%s, umbral=%s)',
                 $alumno->nombre_completo,
                 $alumno->id,
-                $grupo->id,
+                $snap->codigo_grupo ?? '—',
                 $horasRestantes,
                 $notaPct !== null ? "{$notaPct}%" : 'sin nota',
                 $haAlcanzadoUmbral ? 'SI' : 'no',
@@ -98,7 +100,7 @@ class NotificarPreCierreCommand extends Command
 
             $datosLog = [
                 'alumno_id'          => $alumno->id,
-                'grupo_formativo_id' => $grupo->id,
+                ...$snap->columnasOrigenLog(),
                 'tipo'               => AlumnoNotificacionLog::TIPO_ALUMNO_PRE_CIERRE,
                 'fase'               => 4,
                 'destinatario_email' => $alumno->email,
@@ -116,7 +118,7 @@ class NotificarPreCierreCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoPreCierreMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         notaTotal: $notaTotal,
                         notaMax: $notaMax,
                         notaPorcentaje: $notaPct,

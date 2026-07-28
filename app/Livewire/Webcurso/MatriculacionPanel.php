@@ -9,6 +9,7 @@ use App\Models\Candidato;
 use App\Models\EncomiendaAlumnoStaging;
 use App\Models\Grupo;
 use App\Models\GrupoFormativo;
+use App\Models\GrupoFormativoAlumno;
 use App\Models\MatriculaAutonoma;
 use App\Models\Tutor;
 use Carbon\Carbon;
@@ -26,6 +27,9 @@ use Modules\Moodle\Services\MoodleService;
 class MatriculacionPanel extends Component
 {
     use WithFileUploads;
+
+    /** Los trámites FUNDAE (ID de grupo, XML, PDF de notificación) no aplican a grupos externos. */
+    private const MSG_SOLO_FUNDAE_PROPIA = 'Este grupo lo comunica la empresa cliente en su propia FUNDAE: no genera ID, XML ni PDF de notificación por nuestra parte.';
 
     public Candidato $candidato;
 
@@ -58,6 +62,10 @@ class MatriculacionPanel extends Component
     public string $nuevasDias = '';
     public string $nuevaDescripcion = '';
     public int $nuevaJornadaLaboral = 1;
+    /** La bonificación la gestiona la empresa cliente en su propia FUNDAE */
+    public bool $nuevoGestionExterna = false;
+    /** Acción/grupo FUNDAE que nos indica la empresa externa (ej. 241/3) */
+    public string $nuevoCodigoGrupoExterno = '';
 
     // ─── Añadir alumnos al grupo ───
     public array $alumnosParaAgregar = [];
@@ -106,11 +114,62 @@ class MatriculacionPanel extends Component
     public string $autonomoNif = '';
     public string $autonomoEmail = '';
     public string $autonomoTelefono = '';
+    /** Empresa declarada por un particular: solo control interno, no crea fila en `empresas` */
+    public string $autonomoEmpresaTexto = '';
     public array $moodleCursosPorAutonomo = []; // [matriculaId => moodle_course_id]
 
     public function mount(Candidato $candidato): void
     {
         $this->candidato = $candidato;
+
+        // Un candidato de empresa externa solo puede crear grupos de gestión externa.
+        $this->nuevoGestionExterna = $this->esCandidatoExterno();
+    }
+
+    /**
+     * ¿El candidato es de una empresa que gestiona su propia bonificación FUNDAE?
+     */
+    public function esCandidatoExterno(): bool
+    {
+        return $this->candidato->tipoCandidato?->codigo === 'empresa_externa';
+    }
+
+    /**
+     * ¿El candidato es un particular que paga el curso de su bolsillo?
+     * No tiene empresa ni grupo formativo: solo matrícula individual en Moodle.
+     */
+    public function esCandidatoParticular(): bool
+    {
+        return $this->candidato->tipoCandidato?->codigo === 'particular';
+    }
+
+    /**
+     * Empresa contra la que se matriculan los alumnos, o NULL si el candidato no tiene
+     * empresa en nuestro universo FUNDAE (empresa externa o particular).
+     *
+     * Las empresas externas NO se dan de alta en `empresas`: gestionan su propia
+     * bonificación y no hemos calculado su crédito. Sus alumnos quedan con
+     * `empresa_id = NULL` y la razón social en `empresa_texto`, solo informativa.
+     */
+    protected function empresaId(): ?int
+    {
+        return $this->candidato->empresa_id;
+    }
+
+    /** Razón social que se guarda como texto en los alumnos sin empresa registrada. */
+    protected function empresaTexto(): ?string
+    {
+        return $this->candidato->empresa_id
+            ? null
+            : $this->candidato->empresaExterna?->razon_social;
+    }
+
+    /** ¿Puede este candidato matricular alumnos? Basta con tener entidad de algún tipo. */
+    protected function puedeMatricular(): bool
+    {
+        return (bool) ($this->candidato->empresa_id
+            || $this->candidato->empresa_externa_id
+            || $this->esCandidatoParticular());
     }
 
     // ═══════════════════════════════════════════════
@@ -138,14 +197,18 @@ class MatriculacionPanel extends Component
             'alumnoEmail.unique'   => 'Ya existe un alumno con ese correo electrónico.',
         ]);
 
-        if (!$this->candidato->empresa_id) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+        $empresaId = $this->empresaId();
+
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
         Alumno::updateOrCreate(
-            ['nif' => $this->alumnoNif, 'empresa_id' => $this->candidato->empresa_id],
+            ['nif' => $this->alumnoNif, 'empresa_id' => $empresaId],
             [
+                // Sin empresa registrada (externa/particular) se guarda la razón social como texto
+                'empresa_texto' => $this->empresaTexto(),
                 'nombre'    => $this->aTitleCase($this->alumnoNombre),
                 'apellido1' => $this->aTitleCase($this->alumnoApellido1),
                 'apellido2' => $this->alumnoApellido2 ? $this->aTitleCase($this->alumnoApellido2) : null,
@@ -171,8 +234,10 @@ class MatriculacionPanel extends Component
             'archivoAlumnos' => 'required|file|mimes:csv,txt,xls,xlsx|max:5120',
         ]);
 
-        if (!$this->candidato->empresa_id) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+        $empresaId = $this->empresaId();
+
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
@@ -320,7 +385,8 @@ class MatriculacionPanel extends Component
                     Alumno::updateOrCreate(
                         ['nif' => $nif],
                         array_filter([
-                            'empresa_id'            => $this->candidato->empresa_id,
+                            'empresa_id'            => $empresaId,
+                            'empresa_texto'         => $this->empresaTexto(),
                             'nombre'                => $nombre,
                             'apellido1'             => $apellido1,
                             'apellido2'             => $apellido2,
@@ -352,7 +418,7 @@ class MatriculacionPanel extends Component
         if ($this->grupoSeleccionadoId && $creados > 0) {
             $grupo = GrupoFormativo::with('alumnos', 'tutor')->find($this->grupoSeleccionadoId);
             if ($grupo && $grupo->estaAbierto()) {
-                $alumnosEmpresa = Alumno::where('empresa_id', $this->candidato->empresa_id)
+                $alumnosEmpresa = Alumno::where('empresa_id', $empresaId)
                     ->activos()
                     ->get();
 
@@ -405,16 +471,16 @@ class MatriculacionPanel extends Component
             'archivosPdf.*.max'    => 'Cada PDF puede pesar hasta 10 MB.',
         ]);
 
-        if (!$this->candidato->empresa_id) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
         $grupo = $this->grupoSeleccionadoId ? GrupoFormativo::find($this->grupoSeleccionadoId) : null;
-        $cifEmpresaGrupo = null;
-        if ($grupo && $grupo->empresa) {
-            $cifEmpresaGrupo = $this->normalizarCifSimple($grupo->empresa->cif);
-        }
+        // El CIF puede venir de nuestra tabla de empresas o de `empresas_externas`
+        $cifEmpresaGrupo = $grupo?->empresa_cif
+            ? $this->normalizarCifSimple($grupo->empresa_cif)
+            : null;
 
         $parser = new PdfFichaInscripcionParser();
         $preview = [];
@@ -469,7 +535,7 @@ class MatriculacionPanel extends Component
             if ($cifEmpresaGrupo && !empty($datos['empresa_cif'])) {
                 $cifPdf = $this->normalizarCifSimple($datos['empresa_cif']);
                 if ($cifPdf && $cifPdf !== $cifEmpresaGrupo) {
-                    $avisos[] = "CIF del PDF ({$datos['empresa_cif']}) no coincide con la empresa del grupo ({$grupo->empresa->cif}).";
+                    $avisos[] = "CIF del PDF ({$datos['empresa_cif']}) no coincide con la empresa del grupo ({$grupo->empresa_cif}).";
                 }
             }
 
@@ -517,8 +583,10 @@ class MatriculacionPanel extends Component
             session()->flash('error-matricula', 'No hay PDFs para confirmar.');
             return;
         }
-        if (!$this->candidato->empresa_id) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+        $empresaId = $this->empresaId();
+
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
@@ -563,7 +631,8 @@ class MatriculacionPanel extends Component
                 $alumno = Alumno::updateOrCreate(
                     ['nif' => $datos['nif']],
                     array_filter([
-                        'empresa_id'            => $this->candidato->empresa_id,
+                        'empresa_id'            => $empresaId,
+                        'empresa_texto'         => $this->empresaTexto(),
                         'nombre'                => $datos['nombre'],
                         'apellido1'             => $datos['apellido1'],
                         'apellido2'             => $datos['apellido2'] ?: null,
@@ -753,14 +822,34 @@ class MatriculacionPanel extends Component
 
     public function crearGrupo(): void
     {
-        $this->validate([
+        // Un candidato de empresa externa solo puede crear grupos de gestión externa,
+        // aunque el checkbox llegue desmarcado desde el navegador.
+        $externo = $this->nuevoGestionExterna || $this->esCandidatoExterno();
+
+        $reglas = [
             'nuevaAccionFormativaId' => 'required|exists:acciones_formativas,id',
             'nuevoTutorId' => 'required|exists:tutores,id',
             'nuevoTramo' => 'required|in:tramo_1,tramo_2',
-            'nuevaFechaInicio' => 'required|date|after_or_equal:today',
+            // En gestión externa la fecha es libre: la empresa nos avisa cuando quiere,
+            // a veces con el curso ya empezado.
+            'nuevaFechaInicio' => $externo ? 'required|date' : 'required|date|after_or_equal:today',
             'nuevaFechaFin' => 'required|date|after:nuevaFechaInicio',
             'nuevaJornadaLaboral' => 'required|in:1,2',
+        ];
+
+        if ($externo) {
+            $reglas['nuevoCodigoGrupoExterno'] = 'required|string|max:50';
+        }
+
+        $this->validate($reglas, [
+            'nuevoCodigoGrupoExterno.required' => 'Indica la acción/grupo FUNDAE que te ha facilitado la empresa (ej: 241/3).',
         ]);
+
+        $empresaId = $this->empresaId();
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
+            return;
+        }
 
         $tutor = Tutor::findOrFail($this->nuevoTutorId);
         if (!$tutor->puedeAceptarEnTramo($this->nuevoTramo, 1, $this->nuevaFechaInicio, $this->nuevaFechaFin)) {
@@ -772,7 +861,9 @@ class MatriculacionPanel extends Component
             'candidato_id' => $this->candidato->id,
             'accion_formativa_id' => $this->nuevaAccionFormativaId,
             'tutor_id' => $this->nuevoTutorId,
-            'empresa_id' => $this->candidato->empresa_id,
+            'empresa_id' => $empresaId,
+            'gestion_externa' => $externo,
+            'codigo_grupo_externo' => $externo ? trim($this->nuevoCodigoGrupoExterno) : null,
             'tramo_horario' => $this->nuevoTramo,
             'descripcion' => $this->nuevaDescripcion ?: null,
             'fecha_inicio' => $this->nuevaFechaInicio,
@@ -781,12 +872,16 @@ class MatriculacionPanel extends Component
             'estado' => 'abierto',
         ]);
 
+        // Los grupos externos no consumen numeración de nuestra FUNDAE.
         $grupo->asignarIdGrupoFundae();
 
         $this->mostrarFormGrupo = false;
         $this->grupoSeleccionadoId = $grupo->id;
         $this->resetFormGrupo();
-        session()->flash('message-matricula', "Grupo formativo creado (FUNDAE: {$grupo->codigo_fundae}). Ahora agrega los alumnos.");
+
+        session()->flash('message-matricula', $externo
+            ? "Grupo externo creado ({$grupo->codigo_grupo_externo}). Ahora agrega los alumnos."
+            : "Grupo formativo creado (FUNDAE: {$grupo->codigo_fundae}). Ahora agrega los alumnos.");
     }
 
     protected function resetFormGrupo(): void
@@ -795,9 +890,11 @@ class MatriculacionPanel extends Component
             'busquedaAccion', 'resultadosAccion', 'nuevaAccionFormativaId',
             'nuevoTutorId', 'nuevoTramo', 'nuevaFechaInicio', 'nuevaFechaFin',
             'nuevasDias', 'nuevaDescripcion', 'nuevaJornadaLaboral',
+            'nuevoCodigoGrupoExterno',
         ]);
         $this->nuevoTramo = 'tramo_2';
         $this->nuevaJornadaLaboral = 1;
+        $this->nuevoGestionExterna = $this->esCandidatoExterno();
         $this->resetValidation();
     }
 
@@ -958,9 +1055,9 @@ class MatriculacionPanel extends Component
             return;
         }
 
-        $empresaId = $this->candidato->empresa_id;
-        if (!$empresaId) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+        $empresaId = $this->empresaId();
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
@@ -1069,6 +1166,12 @@ class MatriculacionPanel extends Component
     public function generarIdGrupoFundae(int $grupoId): void
     {
         $grupo = GrupoFormativo::findOrFail($grupoId);
+
+        if ($grupo->gestion_externa) {
+            session()->flash('error-matricula', self::MSG_SOLO_FUNDAE_PROPIA);
+            return;
+        }
+
         $grupo->asignarIdGrupoFundae();
         session()->flash('message-matricula', "ID grupo FUNDAE asignado: {$grupo->fresh()->codigo_fundae}");
     }
@@ -1258,6 +1361,11 @@ class MatriculacionPanel extends Component
 
     public function abrirSubirPdf(int $grupoId): void
     {
+        if (GrupoFormativo::whereKey($grupoId)->value('gestion_externa')) {
+            session()->flash('error-matricula', self::MSG_SOLO_FUNDAE_PROPIA);
+            return;
+        }
+
         $this->pdfGrupoId      = $grupoId;
         $this->pdfNotificacion = null;
         $this->resetValidation('pdfNotificacion');
@@ -1284,6 +1392,11 @@ class MatriculacionPanel extends Component
             ->where('estado', 'abierto')
             ->with('accionFormativa')
             ->first();
+
+        if ($grupo?->gestion_externa) {
+            session()->flash('error-matricula', self::MSG_SOLO_FUNDAE_PROPIA);
+            return;
+        }
 
         if (!$grupo) {
             session()->flash('error-matricula', 'El grupo no existe o no está en estado abierto.');
@@ -1350,6 +1463,11 @@ class MatriculacionPanel extends Component
 
     public function marcarComunicado(int $grupoId): void
     {
+        if (GrupoFormativo::whereKey($grupoId)->value('gestion_externa')) {
+            session()->flash('error-matricula', self::MSG_SOLO_FUNDAE_PROPIA);
+            return;
+        }
+
         GrupoFormativo::where('id', $grupoId)
             ->where('candidato_id', $this->candidato->id)
             ->where('estado', 'abierto')
@@ -1369,6 +1487,11 @@ class MatriculacionPanel extends Component
     public function descargarXmlInicioGrupo(int $grupoId): mixed
     {
         $grupo = GrupoFormativo::findOrFail($grupoId);
+
+        if ($grupo->gestion_externa) {
+            session()->flash('error-matricula', self::MSG_SOLO_FUNDAE_PROPIA);
+            return null;
+        }
 
         if (!$grupo->id_grupo_fundae) {
             $grupo->asignarIdGrupoFundae();
@@ -1502,6 +1625,11 @@ class MatriculacionPanel extends Component
     {
         $this->resetFormAutonomo();
         $this->mostrarFormAutonomo = true;
+
+        // Un particular llega sin alumnos registrados: lo normal es darlo de alta aquí mismo.
+        if ($this->esCandidatoParticular() && $this->candidato->matriculasAutonomas()->doesntExist()) {
+            $this->autonomoNuevoAlumno = true;
+        }
     }
 
     public function updatedAutonomoBusquedaAccion(): void
@@ -1554,8 +1682,11 @@ class MatriculacionPanel extends Component
         $rules = [
             'autonomoAccionFormativaId' => 'required|exists:acciones_formativas,id',
             'autonomoTutorId'           => 'required|exists:tutores,id',
-            'autonomoFechaInicio'       => 'nullable|date',
-            'autonomoFechaFin'          => 'nullable|date|after_or_equal:autonomoFechaInicio',
+            // Obligatorias: sin ventana de fechas el alumno no entraría en Reportes Moodle
+            // (no se puede calcular el % de tiempo transcurrido ni el pre-cierre).
+            // La fecha de inicio es libre: puede ser mañana mismo si hoy paga.
+            'autonomoFechaInicio'       => 'required|date',
+            'autonomoFechaFin'          => 'required|date|after_or_equal:autonomoFechaInicio',
         ];
 
         if ($this->autonomoNuevoAlumno) {
@@ -1566,19 +1697,36 @@ class MatriculacionPanel extends Component
                 'autonomoNif'       => 'required|string|max:15|unique:alumnos,nif',
                 'autonomoEmail'     => 'required|email|max:255|unique:alumnos,email',
                 'autonomoTelefono'  => 'nullable|string|max:20',
+                // Solo informativo: no crea ni vincula nada en la tabla `empresas`
+                'autonomoEmpresaTexto' => 'nullable|string|max:255',
             ];
         } else {
             $rules['autonomoAlumnoId'] = 'required|exists:alumnos,id';
         }
 
         $this->validate($rules, [
-            'autonomoAlumnoId.required' => 'Selecciona un alumno o crea uno nuevo.',
-            'autonomoNif.unique'        => 'Ya existe un alumno con ese NIF.',
-            'autonomoEmail.unique'      => 'Ya existe un alumno con ese correo.',
+            'autonomoAlumnoId.required'         => 'Selecciona un alumno o crea uno nuevo.',
+            'autonomoAccionFormativaId.required' => 'Busca y selecciona la acción formativa.',
+            'autonomoTutorId.required'          => 'Selecciona el tutor.',
+            'autonomoFechaInicio.required'      => 'Indica la fecha de inicio.',
+            'autonomoFechaFin.required'         => 'Indica la fecha de fin (o rellena el campo Días).',
+            'autonomoFechaFin.after_or_equal'   => 'La fecha de fin no puede ser anterior a la de inicio.',
+            'autonomoNombre.required'           => 'El nombre del alumno es obligatorio.',
+            'autonomoApellido1.required'        => 'El primer apellido es obligatorio.',
+            'autonomoNif.required'              => 'El NIF del alumno es obligatorio.',
+            'autonomoNif.unique'                => 'Ya existe un alumno con ese NIF.',
+            'autonomoEmail.required'            => 'El correo del alumno es obligatorio.',
+            'autonomoEmail.email'               => 'El correo no tiene un formato válido.',
+            'autonomoEmail.unique'              => 'Ya existe un alumno con ese correo.',
         ]);
 
-        if (!$this->candidato->empresa_id) {
-            session()->flash('error-matricula', 'El candidato no tiene empresa asociada.');
+        $esParticular = $this->esCandidatoParticular();
+
+        // Un particular no pertenece a ninguna empresa: su empresa queda como texto libre.
+        $empresaId = $this->empresaId();
+
+        if (!$this->puedeMatricular()) {
+            session()->flash('error-matricula', 'El candidato no tiene empresa ni empresa externa asociada.');
             return;
         }
 
@@ -1586,7 +1734,7 @@ class MatriculacionPanel extends Component
         if (!$this->autonomoNuevoAlumno) {
             $alumno = Alumno::find($this->autonomoAlumnoId);
             if ($alumno && $alumno->gruposFormativos()->exists()) {
-                session()->flash('error-matricula', 'Este alumno tiene grupos FUNDAE. Un alumno bonificado no puede ser autónomo.');
+                session()->flash('error-matricula', 'Este alumno tiene grupos FUNDAE. Un alumno bonificado no puede ser autónomo ni particular.');
                 return;
             }
         }
@@ -1594,13 +1742,14 @@ class MatriculacionPanel extends Component
         // Crear nuevo alumno si es necesario
         if ($this->autonomoNuevoAlumno) {
             $alumno = Alumno::create([
-                'empresa_id' => $this->candidato->empresa_id,
-                'nombre'     => $this->aTitleCase($this->autonomoNombre),
-                'apellido1'  => $this->aTitleCase($this->autonomoApellido1),
-                'apellido2'  => $this->autonomoApellido2 ? $this->aTitleCase($this->autonomoApellido2) : null,
-                'nif'        => $this->autonomoNif,
-                'email'      => mb_strtolower(trim($this->autonomoEmail)),
-                'telefono'   => $this->autonomoTelefono ?: null,
+                'empresa_id'    => $empresaId,
+                'empresa_texto' => $this->autonomoEmpresaTexto ? trim($this->autonomoEmpresaTexto) : null,
+                'nombre'        => $this->aTitleCase($this->autonomoNombre),
+                'apellido1'     => $this->aTitleCase($this->autonomoApellido1),
+                'apellido2'     => $this->autonomoApellido2 ? $this->aTitleCase($this->autonomoApellido2) : null,
+                'nif'           => $this->autonomoNif,
+                'email'         => mb_strtolower(trim($this->autonomoEmail)),
+                'telefono'      => $this->autonomoTelefono ?: null,
             ]);
             $alumnoId = $alumno->id;
         } else {
@@ -1609,10 +1758,13 @@ class MatriculacionPanel extends Component
 
         MatriculaAutonoma::create([
             'candidato_id'        => $this->candidato->id,
+            'modalidad'           => $esParticular
+                ? MatriculaAutonoma::MODALIDAD_PARTICULAR
+                : MatriculaAutonoma::MODALIDAD_AUTONOMO,
             'alumno_id'           => $alumnoId,
             'accion_formativa_id' => $this->autonomoAccionFormativaId,
             'tutor_id'            => $this->autonomoTutorId,
-            'empresa_id'          => $this->candidato->empresa_id,
+            'empresa_id'          => $empresaId,
             'fecha_inicio'        => $this->autonomoFechaInicio ?: null,
             'fecha_fin'           => $this->autonomoFechaFin ?: null,
             'estado'              => 'pendiente',
@@ -1620,7 +1772,9 @@ class MatriculacionPanel extends Component
 
         $this->mostrarFormAutonomo = false;
         $this->resetFormAutonomo();
-        session()->flash('message-matricula', 'Matrícula de autónomo creada correctamente.');
+        session()->flash('message-matricula', $esParticular
+            ? 'Matrícula de particular creada correctamente.'
+            : 'Matrícula de autónomo creada correctamente.');
     }
 
     public function ejecutarEnMoodleAutonomo(int $matriculaId): void
@@ -1667,6 +1821,7 @@ class MatriculacionPanel extends Component
             'autonomoTutorId', 'autonomoAlumnoId', 'autonomoFechaInicio', 'autonomoFechaFin',
             'autonomoDias', 'autonomoNuevoAlumno', 'autonomoNombre', 'autonomoApellido1',
             'autonomoApellido2', 'autonomoNif', 'autonomoEmail', 'autonomoTelefono',
+            'autonomoEmpresaTexto',
         ]);
         $this->resetValidation();
     }
@@ -1677,9 +1832,29 @@ class MatriculacionPanel extends Component
 
     public function render()
     {
-        $alumnos = collect();
-        if ($this->candidato->empresa_id) {
-            $alumnos = Alumno::where('empresa_id', $this->candidato->empresa_id)
+        // Sin crear: si el candidato es externo y aún no hay espejo, simplemente no hay alumnos.
+        $empresaId = $this->empresaId();
+
+        if ($empresaId) {
+            // Empresa nuestra: todos sus alumnos son reutilizables (fidelización)
+            $alumnos = Alumno::where('empresa_id', $empresaId)
+                ->activos()
+                ->orderBy('apellido1')
+                ->get();
+        } else {
+            // Empresa externa o particular: no hay empresa en `empresas` de la que colgar,
+            // así que los alumnos disponibles son los que ya pasaron por este candidato.
+            $idsAlumnos = MatriculaAutonoma::where('candidato_id', $this->candidato->id)
+                ->pluck('alumno_id')
+                ->merge(
+                    GrupoFormativoAlumno::whereIn(
+                        'grupo_formativo_id',
+                        GrupoFormativo::where('candidato_id', $this->candidato->id)->pluck('id'),
+                    )->pluck('alumno_id'),
+                )
+                ->unique();
+
+            $alumnos = Alumno::whereIn('id', $idsAlumnos)
                 ->activos()
                 ->orderBy('apellido1')
                 ->get();
@@ -1722,9 +1897,9 @@ class MatriculacionPanel extends Component
 
         // Alumnos en staging de encomienda pendientes, para la empresa de este candidato
         $alumnosEncomienda = collect();
-        if ($this->candidato->empresa_id) {
+        if ($empresaId) {
             $alumnosEncomienda = EncomiendaAlumnoStaging::where('estado', 'pendiente')
-                ->whereHas('contrato', fn ($q) => $q->where('empresa_id', $this->candidato->empresa_id))
+                ->whereHas('contrato', fn ($q) => $q->where('empresa_id', $empresaId))
                 ->with('contrato')
                 ->orderBy('apellido1')
                 ->get();

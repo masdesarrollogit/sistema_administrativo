@@ -40,7 +40,9 @@ class NotificarInactivosCommand extends Command
             ->with([
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
+                'matriculaAutonoma.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.tutor',
             ])
             ->get();
 
@@ -56,14 +58,14 @@ class NotificarInactivosCommand extends Command
 
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
-            $grupo = $snap->pivot?->grupoFormativo;
+            $matricula = $snap->origen();
 
-            if (!$alumno || !$grupo || !$alumno->email) {
+            if (!$alumno || !$matricula || !$alumno->email) {
                 continue;
             }
 
             // Verificar que el curso siga activo (extra cinturón)
-            $finCurso = CarbonImmutable::parse($grupo->fecha_fin)->startOfDay();
+            $finCurso = CarbonImmutable::parse($snap->fecha_fin_curso)->startOfDay();
             if ($finCurso->lessThan($hoy)) {
                 $omitidosCursoFinalizado++;
                 continue;
@@ -72,7 +74,7 @@ class NotificarInactivosCommand extends Command
             // Throttle 72h por alumno+grupo
             $ultimoEnvio = AlumnoNotificacionLog::query()
                 ->where('alumno_id', $alumno->id)
-                ->where('grupo_formativo_id', $grupo->id)
+                ->delOrigen($snap)
                 ->where('tipo', AlumnoNotificacionLog::TIPO_ALUMNO_INACTIVO)
                 ->where('exitoso', true)
                 ->orderByDesc('enviado_at')
@@ -88,10 +90,10 @@ class NotificarInactivosCommand extends Command
             $notaPct = $snap->nota_total_porcentaje;
 
             $this->line(sprintf(
-                ' · %s (alumno_id=%d, grupo=%d, %d días inactivo, %d días restantes, nota=%s)',
+                ' · %s (alumno_id=%d, grupo=%s, %d días inactivo, %d días restantes, nota=%s)',
                 $alumno->nombre_completo,
                 $alumno->id,
-                $grupo->id,
+                $snap->codigo_grupo ?? '—',
                 $diasInactivo,
                 $diasRestantes,
                 $notaPct !== null ? "{$notaPct}%" : 'sin nota',
@@ -104,7 +106,7 @@ class NotificarInactivosCommand extends Command
 
             $datosLog = [
                 'alumno_id'          => $alumno->id,
-                'grupo_formativo_id' => $grupo->id,
+                ...$snap->columnasOrigenLog(),
                 'tipo'               => AlumnoNotificacionLog::TIPO_ALUMNO_INACTIVO,
                 'fase'               => 2,
                 'destinatario_email' => $alumno->email,
@@ -122,7 +124,7 @@ class NotificarInactivosCommand extends Command
                     ->to($alumno->email)
                     ->send(new AlumnoInactivoMail(
                         alumno: $alumno,
-                        grupo: $grupo,
+                        matricula: $matricula,
                         notaTotal: $snap->nota_total !== null ? (float) $snap->nota_total : null,
                         notaMax: $snap->nota_max !== null ? (float) $snap->nota_max : null,
                         notaPorcentaje: $notaPct,

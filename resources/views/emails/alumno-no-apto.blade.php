@@ -26,7 +26,7 @@
             <table style="width: 100%; border-collapse: collapse;">
                 <tr>
                     <td style="padding: 6px 0; font-weight: bold; color: #7f1d1d; width: 200px;">Curso finalizado el:</td>
-                    <td style="padding: 6px 0; font-size: 16px;">{{ $grupo->fecha_fin?->format('d/m/Y') ?? '—' }}</td>
+                    <td style="padding: 6px 0; font-size: 16px;">{{ $noApto->fecha_fin_curso?->format('d/m/Y') ?? '—' }}</td>
                 </tr>
                 <tr>
                     <td style="padding: 6px 0; font-weight: bold; color: #7f1d1d;">Tu puntuación final:</td>

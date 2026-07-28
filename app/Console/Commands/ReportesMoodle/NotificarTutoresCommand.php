@@ -35,10 +35,17 @@ class NotificarTutoresCommand extends Command
 
         $snapshots = AlumnoProgresoMoodle::query()
             ->deHoy()
-            ->whereHas('pivot.grupoFormativo', function ($q) use ($hoy) {
-                $q->where('estado', 'en_curso')
-                  ->whereDate('fecha_inicio', '<=', $hoy->toDateString())
-                  ->whereDate('fecha_fin',    '>=', $hoy->toDateString());
+            // Curso vivo hoy, venga de un grupo formativo o de una matrícula individual
+            ->where(function ($q) use ($hoy) {
+                $q->whereHas('pivot.grupoFormativo', function ($g) use ($hoy) {
+                    $g->where('estado', 'en_curso')
+                      ->whereDate('fecha_inicio', '<=', $hoy->toDateString())
+                      ->whereDate('fecha_fin',    '>=', $hoy->toDateString());
+                })->orWhereHas('matriculaAutonoma', function ($m) use ($hoy) {
+                    $m->where('estado', 'matriculado')
+                      ->whereDate('fecha_inicio', '<=', $hoy->toDateString())
+                      ->whereDate('fecha_fin',    '>=', $hoy->toDateString());
+                });
             })
             ->where(function ($q) {
                 $q->where('nunca_entro_curso', true)
@@ -64,6 +71,8 @@ class NotificarTutoresCommand extends Command
                 'alumno',
                 'pivot.grupoFormativo.accionFormativa',
                 'pivot.grupoFormativo.tutor',
+                'matriculaAutonoma.accionFormativa',
+                'matriculaAutonoma.tutor',
             ])
             ->get();
 
@@ -76,25 +85,24 @@ class NotificarTutoresCommand extends Command
 
         foreach ($snapshots as $snap) {
             $alumno = $snap->alumno;
-            $grupo = $snap->pivot?->grupoFormativo;
-            $tutor = $grupo?->tutor;
+            $matricula = $snap->origen();
+            $tutor = $snap->tutor_curso;
 
-            if (!$alumno || !$grupo || !$tutor || !$tutor->email) {
+            if (!$alumno || !$matricula || !$tutor || !$tutor->email) {
                 continue;
             }
             if (!$incluirExternos && $tutor->tipo !== 'interno') {
                 continue;
             }
 
-            $accion = $grupo->accionFormativa;
+            $accion = $snap->accion_curso;
             $cursoNombre = $accion?->denominacion_limpia ?? ($accion?->denominacion ?? '—');
-            $grupoEtiqueta = $accion && $grupo->id_grupo_fundae
-                ? "{$accion->numero_accion}/{$grupo->id_grupo_fundae}"
-                : (string) $grupo->id;
+            // Bonificado: "241/3". Individual: "Particular" / "Autónomo 2x1".
+            $grupoEtiqueta = $snap->codigo_grupo ?? '—';
 
             $emailsAlumno = AlumnoNotificacionLog::query()
                 ->where('alumno_id', $alumno->id)
-                ->where('grupo_formativo_id', $grupo->id)
+                ->delOrigen($snap)
                 ->whereIn('tipo', [
                     AlumnoNotificacionLog::TIPO_ALUMNO_NO_CONECTADO,
                     AlumnoNotificacionLog::TIPO_ALUMNO_INACTIVO,
@@ -118,7 +126,7 @@ class NotificarTutoresCommand extends Command
 
             if ($snap->pre_cierre) {
                 // Pre-cierre tiene prioridad MÁXIMA sobre cualquier otro estado.
-                $finCurso = CarbonImmutable::parse($grupo->fecha_fin)->endOfDay();
+                $finCurso = CarbonImmutable::parse($snap->fecha_fin_curso)->endOfDay();
                 $horasRestantes = max(0, (int) floor(CarbonImmutable::now('Europe/Madrid')->diffInSeconds($finCurso, false) / 3600));
                 $porTutor[$tutor->id]['pre_cierre'][] = $base + [
                     'horas_restantes'              => $horasRestantes,
@@ -126,7 +134,7 @@ class NotificarTutoresCommand extends Command
                     'cuestionario_final_realizado' => (bool) $snap->cuestionario_final_realizado,
                 ];
             } elseif ($snap->nunca_entro_curso) {
-                $diasDesdeInicio = (int) CarbonImmutable::parse($grupo->fecha_inicio)
+                $diasDesdeInicio = (int) CarbonImmutable::parse($snap->fecha_inicio_curso)
                     ->startOfDay()
                     ->diffInDays($hoy, false);
                 $porTutor[$tutor->id]['no_conectados'][] = $base + [
@@ -136,7 +144,7 @@ class NotificarTutoresCommand extends Command
                 // Riesgo crítico tiene prioridad sobre Inactivo en el listado del tutor
                 // (un alumno puede ser ambos: dejarlo en la sección más urgente)
                 $diasRestantes = max(0, (int) $hoy->diffInDays(
-                    CarbonImmutable::parse($grupo->fecha_fin)->startOfDay(),
+                    CarbonImmutable::parse($snap->fecha_fin_curso)->startOfDay(),
                     false,
                 ));
                 $porTutor[$tutor->id]['riesgo_critico'][] = $base + [
@@ -148,7 +156,7 @@ class NotificarTutoresCommand extends Command
                 ];
             } elseif ($snap->apto_sin_examen) {
                 $diasRestantes = max(0, (int) $hoy->diffInDays(
-                    CarbonImmutable::parse($grupo->fecha_fin)->startOfDay(),
+                    CarbonImmutable::parse($snap->fecha_fin_curso)->startOfDay(),
                     false,
                 ));
                 $porTutor[$tutor->id]['apto_sin_examen'][] = $base + [
@@ -157,7 +165,7 @@ class NotificarTutoresCommand extends Command
                 ];
             } elseif ($snap->inactivo) {
                 $diasRestantes = max(0, (int) $hoy->diffInDays(
-                    CarbonImmutable::parse($grupo->fecha_fin)->startOfDay(),
+                    CarbonImmutable::parse($snap->fecha_fin_curso)->startOfDay(),
                     false,
                 ));
                 $porTutor[$tutor->id]['inactivos'][] = $base + [

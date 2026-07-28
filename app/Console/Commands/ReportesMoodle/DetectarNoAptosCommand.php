@@ -4,7 +4,6 @@ namespace App\Console\Commands\ReportesMoodle;
 
 use App\Models\AlumnoNoApto;
 use App\Models\AlumnoProgresoMoodle;
-use App\Models\GrupoFormativo;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
 
@@ -24,92 +23,101 @@ class DetectarNoAptosCommand extends Command
 
         $hoy = CarbonImmutable::now('Europe/Madrid')->startOfDay();
 
-        // Examinamos cursos cuyo fecha_fin sea entre hace 90 días y ayer.
-        // (cualquier ventana razonable; el comando es idempotente con UNIQUE en BD).
-        $gruposCandidatos = GrupoFormativo::query()
-            ->where('estado', 'en_curso')
-            ->whereDate('fecha_fin', '<', $hoy->toDateString())
-            ->whereDate('fecha_fin', '>=', $hoy->subDays(90)->toDateString())
-            ->pluck('id');
+        // Examinamos cursos cuyo fecha_fin sea entre hace 90 días y ayer, vengan de un
+        // grupo formativo o de una matrícula individual (autónomo 2x1 / particular).
+        // El comando es idempotente gracias al UNIQUE (alumno_id, origen_clave).
+        $desde = $hoy->subDays(90)->toDateString();
+        $ayer = $hoy->toDateString();
 
-        if ($gruposCandidatos->isEmpty()) {
-            $this->info('✅ No hay grupos finalizados en los últimos 90 días para examinar.');
+        $snapshots = AlumnoProgresoMoodle::query()
+            ->where(function ($q) use ($desde, $ayer) {
+                $q->whereHas('pivot.grupoFormativo', function ($g) use ($desde, $ayer) {
+                    $g->where('estado', 'en_curso')
+                      ->whereDate('fecha_fin', '<', $ayer)
+                      ->whereDate('fecha_fin', '>=', $desde);
+                })->orWhereHas('matriculaAutonoma', function ($m) use ($desde, $ayer) {
+                    $m->where('estado', 'matriculado')
+                      ->whereDate('fecha_fin', '<', $ayer)
+                      ->whereDate('fecha_fin', '>=', $desde);
+                });
+            })
+            ->with(['alumno', 'pivot.grupoFormativo.accionFormativa', 'matriculaAutonoma.accionFormativa'])
+            ->orderByDesc('fecha_snapshot')
+            ->get()
+            // Nos quedamos con el snapshot MÁS RECIENTE de cada origen.
+            ->unique(fn (AlumnoProgresoMoodle $s) => $s->grupo_formativo_alumno_id
+                ? "p{$s->grupo_formativo_alumno_id}"
+                : "m{$s->matricula_autonoma_id}");
+
+        if ($snapshots->isEmpty()) {
+            $this->info('✅ No hay cursos finalizados en los últimos 90 días para examinar.');
             return self::SUCCESS;
         }
 
-        $this->info("📋 Examinando {$gruposCandidatos->count()} grupo(s) finalizado(s)...");
+        $this->info("📋 Examinando {$snapshots->count()} matrícula(s) finalizada(s)...");
 
-        // Por cada grupo, buscamos el ÚLTIMO snapshot de cada alumno y verificamos condiciones.
         $detectados = 0;
         $yaRegistrados = 0;
 
-        foreach ($gruposCandidatos as $grupoId) {
-            // Último snapshot por alumno+grupo (usa el más reciente disponible)
-            $snapshots = AlumnoProgresoMoodle::query()
-                ->whereHas('pivot', fn ($q) => $q->where('grupo_formativo_id', $grupoId))
-                ->with(['alumno', 'pivot.grupoFormativo'])
-                ->orderByDesc('fecha_snapshot')
-                ->get()
-                ->unique('grupo_formativo_alumno_id'); // primer snapshot por pivot (más reciente)
-
-            foreach ($snapshots as $snap) {
-                $alumno = $snap->alumno;
-                $grupo = $snap->pivot?->grupoFormativo;
-                if (!$alumno || !$grupo) {
-                    continue;
-                }
-
-                // Condiciones para No apto:
-                //   - nota_total < 50 (o null = nunca llegó)
-                //   - cuestionario_final_realizado = false
-                $notaTotal = $snap->nota_total !== null ? (float) $snap->nota_total : 0.0;
-                $umbralAprobado = (float) config('reportes_moodle.reporte_inactivos.umbral_aprobado_puntos', 50);
-
-                if ($notaTotal >= $umbralAprobado) {
-                    continue; // alcanzó el umbral; no es No apto
-                }
-                if ($snap->cuestionario_final_realizado) {
-                    continue; // realizó el cuestionario; no es No apto (caso atípico pero protege)
-                }
-
-                // ¿Ya existe?
-                $existente = AlumnoNoApto::where('alumno_id', $alumno->id)
-                    ->where('grupo_formativo_id', $grupo->id)
-                    ->first();
-
-                if ($existente) {
-                    $yaRegistrados++;
-                    continue;
-                }
-
-                $this->line(sprintf(
-                    ' · %s · curso=%s · nota=%s · fin=%s',
-                    $alumno->nombre_completo,
-                    $grupo->accionFormativa?->denominacion_limpia ?? "(grupo {$grupo->id})",
-                    $snap->nota_total !== null ? "{$snap->nota_total}/{$snap->nota_max}" : 'sin nota',
-                    $grupo->fecha_fin?->format('d/m/Y'),
-                ));
-
-                if ($dryRun) {
-                    $detectados++;
-                    continue;
-                }
-
-                AlumnoNoApto::create([
-                    'alumno_id'                 => $alumno->id,
-                    'grupo_formativo_id'        => $grupo->id,
-                    'grupo_formativo_alumno_id' => $snap->grupo_formativo_alumno_id,
-                    'moodle_user_id'            => $snap->moodle_user_id,
-                    'moodle_course_id'          => $snap->moodle_course_id,
-                    'nota_total'                => $snap->nota_total,
-                    'nota_max'                  => $snap->nota_max,
-                    'fecha_fin_curso'           => $grupo->fecha_fin,
-                    'fecha_deteccion'           => now(),
-                    'reinicio_estado'           => AlumnoNoApto::ESTADO_PENDIENTE,
-                ]);
-
-                $detectados++;
+        foreach ($snapshots as $snap) {
+            $alumno = $snap->alumno;
+            $matricula = $snap->origen();
+            if (!$alumno || !$matricula) {
+                continue;
             }
+
+            // Condiciones para No apto:
+            //   - nota_total < 50 (o null = nunca llegó)
+            //   - cuestionario_final_realizado = false
+            $notaTotal = $snap->nota_total !== null ? (float) $snap->nota_total : 0.0;
+            $umbralAprobado = (float) config('reportes_moodle.reporte_inactivos.umbral_aprobado_puntos', 50);
+
+            if ($notaTotal >= $umbralAprobado) {
+                continue; // alcanzó el umbral; no es No apto
+            }
+            if ($snap->cuestionario_final_realizado) {
+                continue; // realizó el cuestionario; no es No apto (caso atípico pero protege)
+            }
+
+            // ¿Ya existe?
+            $existente = AlumnoNoApto::where('alumno_id', $alumno->id)
+                ->where('origen_clave', $matricula->claveOrigen())
+                ->first();
+
+            if ($existente) {
+                $yaRegistrados++;
+                continue;
+            }
+
+            $this->line(sprintf(
+                ' · %s · curso=%s · nota=%s · fin=%s',
+                $alumno->nombre_completo,
+                $snap->accion_curso?->denominacion_limpia ?? "({$matricula->claveOrigen()})",
+                $snap->nota_total !== null ? "{$snap->nota_total}/{$snap->nota_max}" : 'sin nota',
+                $snap->fecha_fin_curso?->format('d/m/Y'),
+            ));
+
+            if ($dryRun) {
+                $detectados++;
+                continue;
+            }
+
+            AlumnoNoApto::create([
+                'alumno_id'                 => $alumno->id,
+                'grupo_formativo_id'        => $snap->pivot?->grupo_formativo_id,
+                'grupo_formativo_alumno_id' => $snap->grupo_formativo_alumno_id,
+                'matricula_autonoma_id'     => $snap->matricula_autonoma_id,
+                'origen_clave'              => $matricula->claveOrigen(),
+                'moodle_user_id'            => $snap->moodle_user_id,
+                'moodle_course_id'          => $snap->moodle_course_id,
+                'nota_total'                => $snap->nota_total,
+                'nota_max'                  => $snap->nota_max,
+                'fecha_fin_curso'           => $snap->fecha_fin_curso,
+                'fecha_deteccion'           => now(),
+                'reinicio_estado'           => AlumnoNoApto::ESTADO_PENDIENTE,
+            ]);
+
+            $detectados++;
         }
 
         $this->newLine();

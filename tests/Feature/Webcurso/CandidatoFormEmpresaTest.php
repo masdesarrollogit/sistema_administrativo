@@ -77,3 +77,57 @@ it('crea el candidato usando la empresa existente, sin duplicarla', function () 
     expect($cand)->not->toBeNull();
     expect($cand->empresa_id)->toBe($empresa->id);
 });
+
+/**
+ * Empresa externa: bonifica por su cuenta, nosotros no calculamos su crédito.
+ * Sus datos se teclean a mano y se guardan en `empresas_externas`, nunca en `empresas`.
+ */
+it('registra la empresa externa tecleada sin darla de alta en el listado de empresas', function () {
+    $tipo = TipoCandidato::factory()->create(['codigo' => 'empresa_externa', 'nombre' => 'Empresa Externa']);
+
+    Livewire::test(CandidatoForm::class)
+        ->set('tipo_candidato_id', $tipo->id)
+        ->set('nombre_contacto', 'Ana')
+        ->set('email', 'ana@example.com')
+        ->set('cif_empresa', 'a-123456789')
+        ->set('razon_social_empresa', 'Maquinaria SL')
+        ->call('save')
+        ->assertHasNoErrors();
+
+    $externa = \App\Models\EmpresaExterna::where('cif', 'A123456789')->first();
+
+    expect($externa)->not->toBeNull()
+        ->and($externa->razon_social)->toBe('Maquinaria SL')
+        // Lo importante: NO aparece en el universo FUNDAE nuestro
+        ->and(Empresa::where('cif', 'A123456789')->exists())->toBeFalse();
+
+    $cand = Candidato::first();
+    expect($cand->empresa_externa_id)->toBe($externa->id)
+        ->and($cand->empresa_id)->toBeNull();
+});
+
+it('exige CIF y razón social a la empresa externa', function () {
+    $tipo = TipoCandidato::factory()->create(['codigo' => 'empresa_externa', 'nombre' => 'Empresa Externa']);
+
+    Livewire::test(CandidatoForm::class)
+        ->set('tipo_candidato_id', $tipo->id)
+        ->set('nombre_contacto', 'Ana')
+        ->set('email', 'ana@example.com')
+        ->set('cif_empresa', 'A123456789')
+        ->set('razon_social_empresa', '')
+        ->call('save')
+        ->assertHasErrors('razon_social_empresa');
+
+    expect(Candidato::count())->toBe(0);
+});
+
+it('no muestra el buscador de empresa a un candidato de empresa externa', function () {
+    $tipo = TipoCandidato::factory()->create(['codigo' => 'empresa_externa', 'nombre' => 'Empresa Externa']);
+
+    $html = Livewire::test(CandidatoForm::class)
+        ->set('tipo_candidato_id', $tipo->id)
+        ->html();
+
+    expect($html)->not->toContain('Buscar')
+        ->toContain('no se da de alta en el listado de Empresas');
+});
