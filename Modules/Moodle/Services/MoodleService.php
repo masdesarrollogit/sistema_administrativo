@@ -336,6 +336,34 @@ class MoodleService
     }
 
     /**
+     * Página de respuestas del cuestionario de calidad (plugin mod_calidadfundae).
+     *
+     * Incremental por `timemodified`: `since` exclusivo, `until` fija la foto de la
+     * corrida para que el offset no se desplace entre páginas.
+     *
+     * @return array{responses: array, total: int, hasmore: bool, lastmodified: int, until: int}
+     */
+    public function getCalidadFundaeResponses(int $since = 0, int $until = 0, int $courseId = 0, int $limit = 200, int $offset = 0): array
+    {
+        $result = $this->call('mod_calidadfundae_get_responses', [
+            'since'         => $since,
+            'until'         => $until,
+            'courseid'      => $courseId,
+            'includedrafts' => 0,
+            'limit'         => $limit,
+            'offset'        => $offset,
+        ]);
+
+        return [
+            'responses'    => $result['responses'] ?? [],
+            'total'        => (int) ($result['total'] ?? 0),
+            'hasmore'      => (bool) ($result['hasmore'] ?? false),
+            'lastmodified' => (int) ($result['lastmodified'] ?? $since),
+            'until'        => (int) ($result['until'] ?? $until),
+        ];
+    }
+
+    /**
      * Verificar que la conexión con Moodle funciona.
      */
     public function testConnection(): bool

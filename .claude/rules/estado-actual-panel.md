@@ -443,6 +443,78 @@ Hasta ahora el snapshot solo recorria el pivot `grupo_formativo_alumno`, de modo
 
 **En la UI de Reportes** la columna Accion/Grupo muestra el codigo FUNDAE en bonificados y una pildora `Particular` (azul cielo) / `Autonomo 2x1` (ambar) en las individuales, porque no hay grupo que mostrar.
 
+### Encuestas de calidad — plugin Moodle, cuestionario completo y curso siguiente (desarrollado 2026-10-05)
+
+Pestañas con color propio: Resumen índigo, Cuestionario completo azul cielo, Oportunidades esmeralda, Reseñas fucsia. La activa va rellena y las demás en tono suave.
+
+Tercera vía de entrada de `encuestas_calidad`, además del CSV del Microsoft Form y del correo de Power Automate (IMAP): el plugin de actividad **`mod_calidadfundae`**, con el que el alumno rellena el cuestionario FUNDAE íntegro dentro del aula.
+
+**Sincronización**:
+- Comando `encuestas-calidad:sincronizar-moodle` (`--dry-run`, `--desde=Y-m-d`, `--curso=ID`), cada 15 min.
+- Lee el webservice `mod_calidadfundae_get_responses` con `MoodleService::getCalidadFundaeResponses()`, de forma incremental por `timemodified`: retoma desde `MAX(moodle_timemodified)` menos 60 s de solape.
+- Guarda con `origen='moodle_plugin'` y `forms_id='moodle-{id}'`, así que reimportar no duplica.
+- Interruptor `encuesta_calidad.plugin_sync_enabled`, OFF fuera de producción.
+
+**Mapeo** (`EncuestaCalidadService::mapearRespuestaPlugin`, tabla en `encuesta_calidad.plugin_mapa`):
+- El alumno se vincula por email. El curso no se deduce: viene del aula (`curso_origen='moodle_plugin'`). La acción/grupo es la del grupo de Moodle del alumno.
+- 9 (no contesta) → NULL.
+- 2.2 → `item_20`; 4.1/4.2 tutores → `item_21`/`item_22`; 4.1/4.2 formadores → `item_06`/`item_07`, para que sigan siendo comparables con el Form.
+- 8.1, 8.2 y 10.1 → columnas `sino_*` (1 = Sí, 2 = No). Nunca se promedian.
+
+**Pestañas en `/webcurso/encuestas-calidad`** (`$pestana`, en la URL). Filtros compartidos + filtro **Origen** (Form / aula):
+- **Resumen**: la vista de siempre, con Form y aula juntos. Añade el KPI «👍 Lo recomendaría», calculado solo sobre quien contestó la 10.1.
+  - Las encuestas del cuestionario nuevo se distinguen con la píldora `🆕 Cuestionario del aula` y un borde azul cielo en la fila; las antiguas llevan `Form antiguo`.
+  - El KPI «🆕 Cuestionario del aula» las filtra al pulsarlo.
+  - El Excel incluye una columna «Origen».
+- **Cuestionario completo**: media y distribución 1-4 por pregunta y por bloque, y % Sí de las preguntas Sí/No. Solo encuestas del aula (`scopeCuestionarioCompleto`).
+  - Debajo, la lista **«💬 Observaciones de los alumnos»** (apartado 11), con las de peor nota primero (`obsPage`).
+- **Saldo en Oportunidades**: columna «Saldo disponible» = `empresas.credito_disponible`. La empresa se busca por la ficha del alumno o, si no, por el CIF de la encuesta.
+  - Cada curso sugerido lleva «✓ lo cubre el saldo» / «✗ saldo insuficiente», comparando con `moodle_cursos.precio`.
+  - Filtro de saldo: cubre / con saldo / sin saldo o sin empresa.
+  - «— sin empresa»: particular o empresa externa, cuyo crédito no calculamos.
+- **Oportunidades**: alumnos con nota 4 que lo recomendarían (o sin dato, en el Form) y que aún no han hecho el curso siguiente. Para comprobarlo se miran otras encuestas, el índice Moodle y el historial del Panel.
+  - Seguimiento por fila: `oportunidad_estado` (pendiente/contactado/interesado/no_interesado/matriculado) y `oportunidad_nota`.
+  - Exportación a Excel. No se envían emails.
+
+**Cursos siguientes** (`/webcurso/cursos-siguientes`, `CursosSiguientesIndex`):
+- Tabla `cursos_siguientes`: origen por **clave de nombre** (`CursoSiguiente::claveCurso`: sin tildes, horas, «Prof. …» ni «(REPASO)»). El destino es **una de dos fuentes**:
+  - `accion_formativa_id`: una **acción formativa FUNDAE** (lo que se imparte hoy; ej. «Claude Code» AF 248 → «Claude Code Avanzado Agentes…» AF 257).
+  - `moodle_curso_id`: un curso del **catálogo web** (CSV de webcurso.es).
+  - Una acción con gemelo en la web (misma clave) toma de ahí el enlace y el precio. Si no lo tiene, el coste se **estima** en horas × `modulo_teleformacion_hora` (7 €/h, módulo FUNDAE de teleformación), y se muestra «≈ X €».
+  - En Oportunidades cada curso sugerido lleva la píldora `AF nnn` o `Web`.
+- Añadir destinos a mano y guardar el enlace a la ficha en webcurso.es (`moodle_cursos.url`).
+- Botón **«Proponer automáticamente»** (`CursoSiguienteService::sugerir`). Combina dos estrategias:
+  - **Categoría con nivel** del catálogo web («ChatGPT Nivel 1» → cursos de «Nivel 2»).
+  - **Nivel en el título**, sobre acciones formativas y web: el destino empieza por el nombre base del origen y tiene un nivel mayor (básico→intermedio→avanzado, I→II).
+  - Un mismo curso solo se propone una vez, preferentemente como acción formativa, con un máximo de 8 por origen.
+  - Las propuestas quedan inactivas hasta que se confirman.
+
+**Autorización para publicar la reseña** (plugin 0.3.0 / versión 2026100600, desarrollado 2026-10-06). **Solo se recoge el consentimiento; no se publica nada todavía** (la publicación, probablemente en Trustpilot, queda para otra fase).
+- **En el formulario del plugin**, tras «Sugerencias»:
+  - Casilla **sin marcar** «Autorizo a WebCurso a publicar mi valoración y mi comentario sobre este curso».
+  - Selector de cómo mostrar el nombre: completo / nombre e inicial / anónimo.
+  - No incluye texto sobre cómo retirarla (decisión de la usuaria).
+- **Columnas del plugin** (`calidadfundae_responses`): `publicarresena`, `nombrepublico`, `consentimientotime` y `consentimientoversion`.
+  - La hora y la versión solo se sellan cuando el consentimiento cambia, como prueba RGPD.
+  - Desmarcar la casilla lo retira.
+- **Panel** (`encuestas_calidad`):
+  - Columnas `resena_autorizada`, `resena_nombre_publico` (ya compuesto: «Ana García» / «Ana G.» / «Anónimo»), `resena_consentimiento_en` y `resena_consentimiento_version`.
+  - Píldora fucsia `✍️ Autoriza publicar · {nombre}` en Resumen y Oportunidades.
+  - Filtro «Solo con autorización para publicar la reseña» y columna en los dos Excel.
+  - **Pestaña «✍️ Reseñas»** (fucsia, con contador). Lista solo las autorizadas, la más reciente primero.
+    - A la izquierda, cómo saldría publicada: nombre público, nota, «lo recomienda», curso y acción/grupo, y el comentario.
+    - A la derecha, los datos internos que **no se publican**: alumno, email, tutor, fecha de la encuesta y momento de la autorización.
+    - Filtro con o sin comentario, y Excel propio (`exportarResenas`) con la versión del texto aceptado.
+- **Corrección de zona horaria** en `mapearRespuestaPlugin`:
+  - Los instantes (`hora_inicio`, `hora_fin`, consentimiento) se guardan en la zona de la app; antes se guardaba la hora de Madrid como si fuese UTC (desfase de 1-2 h).
+  - Las fechas (encuesta y curso) usan el día de calendario de Madrid.
+
+**Puesta en marcha en Moodle** (manual): actualizar el plugin, añadir `mod_calidadfundae_get_responses` al servicio web del token del Panel y asignar `mod/calidadfundae:syncexternal` (contexto sistema) al usuario del token.
+
+**Tests**:
+- [`tests/Feature/Webcurso/EncuestaCalidadPluginSyncTest.php`](../../tests/Feature/Webcurso/EncuestaCalidadPluginSyncTest.php) (6)
+- [`tests/Feature/Webcurso/CursosSiguientesTest.php`](../../tests/Feature/Webcurso/CursosSiguientesTest.php) (9)
+
 ### Autonomos 2x1 (desarrollado 2026-03-30, actualizado 2026-04-06)
 - **MatriculaAutonoma**: entidad ligera para alumnos autonomos que no llevan grupo formativo FUNDAE
 - Tabla `matriculas_autonomas`: candidato, alumno, accion_formativa, tutor, empresa, fechas, estado Moodle

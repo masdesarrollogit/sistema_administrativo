@@ -137,6 +137,16 @@ Schedule::command('encuestas-calidad:leer-imap')
         \Log::error('Error al ejecutar el cron de lectura IMAP de encuestas de calidad');
     });
 
+// Respuestas del cuestionario íntegro rellenado dentro del aula (plugin Moodle
+// mod_calidadfundae). Protegido por encuesta_calidad.plugin_sync_enabled.
+Schedule::command('encuestas-calidad:sincronizar-moodle')
+    ->everyFifteenMinutes()
+    ->timezone('Europe/Madrid')
+    ->withoutOverlapping()
+    ->onFailure(function () {
+        \Log::error('Error al sincronizar las encuestas del plugin Moodle mod_calidadfundae');
+    });
+
 // Índice inverso email→cursos de Moodle (incl. matrículas caducadas) para poder
 // resolver el curso de encuestas de calidad de alumnos sin ficha/curso en el Panel.
 // Diario de madrugada; el backfill (encuestas-calidad:resolver-moodle) se lanza aparte.

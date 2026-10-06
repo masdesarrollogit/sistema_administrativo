@@ -13,7 +13,8 @@ class MoodleCurso extends Model
         'moodle_categoria_id',
         'titulo',
         'precio',
-        'horas'
+        'horas',
+        'url',
     ];
 
     protected $casts = [

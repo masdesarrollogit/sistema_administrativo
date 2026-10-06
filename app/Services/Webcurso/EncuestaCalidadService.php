@@ -14,9 +14,11 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 /**
  * Persistencia y vinculación de las respuestas del cuestionario de calidad FUNDAE.
  *
- * Dos entradas, una sola lógica de guardado (`guardarRespuesta`):
+ * Tres entradas, una sola lógica de guardado (`guardarRespuesta`):
  *  - `importarDesdeArchivo()`  → Excel/CSV exportado del Microsoft Form (histórico).
  *  - comando `encuestas-calidad:leer-imap` → correo de Power Automate (tiempo real).
+ *  - comando `encuestas-calidad:sincronizar-moodle` → plugin mod_calidadfundae
+ *    (cuestionario íntegro, ver `mapearRespuestaPlugin`).
  *
  * El mapeo de columnas es dirigido por cabecera/código de pregunta (config
  * `encuesta_calidad.campos` y `.preguntas`), no por letras fijas, para tolerar
@@ -313,7 +315,7 @@ class EncuestaCalidadService
      * sus vínculos con alumno / grupo / acción / tutor.
      *
      * @param array $datos  Campos del modelo (los que falten se ignoran).
-     * @param string $origen  'import' | 'power_automate'
+     * @param string $origen  'import' | 'power_automate' | 'moodle_plugin'
      */
     public function guardarRespuesta(array $datos, string $origen): EncuestaCalidad
     {
@@ -333,14 +335,147 @@ class EncuestaCalidadService
         // Vínculo con alumno: por email y, si no hay, por nombre (fallback)
         $datos['alumno_id'] = $this->resolverAlumno($datos['alumno_email'] ?? null, $datos['alumno_nombre'] ?? null);
 
-        // Curso al que pertenece la calificación (Nº Acción del Form o, si no viene,
-        // por la fecha de cumplimentación contra los cursos del alumno)
-        $datos = array_merge($datos, $this->resolverCurso($datos));
+        if (($datos['curso_origen'] ?? null) === 'moodle_plugin' && !empty($datos['curso_resuelto'])) {
+            // El plugin ya trae el curso real del aula: no se adivina. Solo se
+            // enlazan las FKs cuando la acción/grupo es un grupo nuestro.
+            $datos = array_merge($datos, array_filter(
+                $this->resolverGrupo($datos['numero_accion'] ?? null, $datos['numero_grupo'] ?? null)
+            ));
+        } else {
+            // Curso al que pertenece la calificación (Nº Acción del Form o, si no viene,
+            // por la fecha de cumplimentación contra los cursos del alumno)
+            $datos = array_merge($datos, $this->resolverCurso($datos));
+        }
 
         $datos['origen'] = $origen;
         $datos['imported_at'] = now();
 
         return EncuestaCalidad::updateOrCreate(['forms_id' => $formsId], $datos);
+    }
+
+    /**
+     * Traduce una respuesta del webservice `mod_calidadfundae_get_responses` al
+     * array de campos que espera `guardarRespuesta`.
+     *
+     * El plugin trae el cuestionario íntegro y el contexto real (alumno, curso y
+     * acción/grupo de Moodle), así que el curso se fija aquí y no se deduce.
+     * Un 9 (NC) se guarda como NULL para que no entre en ninguna media.
+     */
+    public function mapearRespuestaPlugin(array $r): array
+    {
+        $txt = function ($v, int $max) {
+            $v = trim((string) ($v ?? ''));
+            return $v === '' ? null : mb_substr($v, 0, $max);
+        };
+        // Instante exacto (hora de envío, consentimiento): en la zona de la app,
+        // que es en la que Eloquent guarda las columnas datetime. Si se dejara en
+        // Madrid se guardaría su hora local como si fuese UTC (desfase de 1-2 h).
+        $ts = function ($v): ?Carbon {
+            $v = (int) ($v ?? 0);
+            return $v > 0 ? Carbon::createFromTimestamp($v)->setTimezone(config('app.timezone')) : null;
+        };
+        // Día de calendario (fechas de la encuesta y del curso): el de Madrid. Moodle
+        // guarda la medianoche española y en UTC caería en el día anterior.
+        $dia = function ($v): ?string {
+            $v = (int) ($v ?? 0);
+            return $v > 0 ? Carbon::createFromTimestamp($v, 'Europe/Madrid')->format('Y-m-d') : null;
+        };
+
+        $fecha = $dia($r['fechacumplim'] ?? null) ?? $dia($r['timesubmitted'] ?? null) ?? $dia($r['timemodified'] ?? null);
+        $courseId = (int) ($r['courseid'] ?? 0) ?: null;
+
+        $datos = [
+            'forms_id'              => 'moodle-' . $r['id'],
+            'hora_inicio'           => $ts($r['timecreated'] ?? null),
+            'hora_fin'              => $ts($r['timesubmitted'] ?? null),
+            'fecha_cumplimentacion' => $fecha,
+            'alumno_nombre'         => $txt($r['userfullname'] ?? null, 191),
+            'alumno_email'          => $this->normalizarEmail((string) ($r['useremail'] ?? '')),
+            'cif_empresa'           => $txt(strtoupper((string) ($r['cif'] ?? '')), 20),
+            'numero_accion'         => $this->soloEntero((string) ($r['naccion'] ?? '')),
+            'numero_grupo'          => $txt($r['ngrupo'] ?? null, 20),
+            'denominacion_accion'   => $txt($r['denominacion'] ?? null, 255),
+            'modalidad'             => $txt($r['modalidad_label'] ?? null, 60),
+            'edad_raw'              => $txt($r['edad'] ?? null, 60),
+            'sexo'                  => $txt($r['sexo_label'] ?? null, 20),
+            'titulacion'            => $txt($r['titulacion_label'] ?? null, 191),
+            'lugar_trabajo'         => $txt($r['provincia'] ?? null, 191),
+            'categoria_profesional' => $txt(($r['categoria_label'] ?? null) ?: ($r['categoriaotra'] ?? null), 120),
+            'horario_curso'         => $txt($r['horario_label'] ?? null, 120),
+            'porcentaje_jornada'    => $txt($r['pctjornada_label'] ?? null, 30),
+            'tamano_empresa'        => $txt($r['tamanoempresa_label'] ?? null, 60),
+            'observaciones'         => $txt($r['sugerencias'] ?? null, 65000),
+
+            // Curso real del aula
+            'curso_resuelto'        => $txt($r['coursefullname'] ?? null, 255),
+            'curso_tipo'            => 'moodle',
+            'curso_origen'          => 'moodle_plugin',
+            'curso_fecha_inicio'    => $dia($r['coursestartdate'] ?? null),
+            'curso_fecha_fin'       => $dia($r['courseenddate'] ?? null),
+            'tutor_label'           => $courseId ? $this->etiquetaTutorPorCurso($courseId) : null,
+
+            // Trazabilidad hacia Moodle
+            'moodle_response_id'    => (int) $r['id'],
+            'moodle_course_id'      => $courseId,
+            'moodle_user_id'        => (int) ($r['userid'] ?? 0) ?: null,
+            'moodle_cmid'           => (int) ($r['cmid'] ?? 0) ?: null,
+            'moodle_timemodified'   => (int) ($r['timemodified'] ?? 0) ?: null,
+        ];
+
+        // Autorización para publicar la reseña (solo se guarda; publicar es otra fase)
+        $autoriza = (int) ($r['publicarresena'] ?? 0) === 1;
+        $datos['resena_autorizada'] = $autoriza;
+        $datos['resena_nombre_publico'] = $autoriza ? $this->nombrePublico($r) : null;
+        $datos['resena_consentimiento_en'] = $ts($r['consentimientotime'] ?? null);
+        $datos['resena_consentimiento_version'] = $txt($r['consentimientoversion'] ?? null, 20);
+
+        foreach (config('encuesta_calidad.plugin_mapa', []) as $clave => $col) {
+            $v = isset($r[$clave]) ? (int) $r[$clave] : null;
+            $datos[$col] = ($v !== null && $v >= 1 && $v <= 4) ? $v : null;
+        }
+        foreach (config('encuesta_calidad.plugin_mapa_sino', []) as $clave => $col) {
+            $v = isset($r[$clave]) ? (int) $r[$clave] : null;
+            $datos[$col] = in_array($v, [1, 2], true) ? $v : null;
+        }
+
+        return $datos;
+    }
+
+    /**
+     * Nombre con el que el alumno quiere aparecer en su reseña:
+     * 1 = "Ana García", 2 = "Ana G.", 3 = "Anónimo" (códigos del plugin).
+     */
+    protected function nombrePublico(array $r): string
+    {
+        $nombre = trim((string) ($r['userfirstname'] ?? ''));
+        $apellidos = trim((string) ($r['userlastname'] ?? ''));
+        if ($nombre === '' && $apellidos === '') {
+            // Respaldo: partir el nombre completo por el primer espacio
+            $partes = preg_split('/\s+/', trim((string) ($r['userfullname'] ?? '')), 2);
+            $nombre = $partes[0] ?? '';
+            $apellidos = $partes[1] ?? '';
+        }
+        $nombre = $this->aTitleCase($nombre);
+        $apellidos = $this->aTitleCase($apellidos);
+
+        return match ((int) ($r['nombrepublico'] ?? 2)) {
+            1       => trim("{$nombre} {$apellidos}") ?: 'Anónimo',
+            3       => 'Anónimo',
+            default => $nombre !== ''
+                ? trim($nombre . ($apellidos !== '' ? ' ' . mb_strtoupper(mb_substr($apellidos, 0, 1)) . '.' : ''))
+                : 'Anónimo',
+        };
+    }
+
+    /**
+     * Etiqueta de tutor de un curso de Moodle, según el índice de matrículas
+     * (el aula es por tutor, salvo Álvaro/Raquel que la comparten).
+     */
+    public function etiquetaTutorPorCurso(int $moodleCourseId): ?string
+    {
+        return MoodleMatriculaIndex::where('moodle_course_id', $moodleCourseId)
+            ->whereNotNull('tutor_label')
+            ->value('tutor_label');
     }
 
     /**

@@ -150,3 +150,25 @@ it('calcula KPIs de satisfacción respetando el año', function () {
             return $stats['n4'] === 2 && $stats['nMenos3'] === 2 && $stats['total'] === 4;
         });
 });
+
+it('ordena desde las cabeceras: satisfacción de menor a mayor y por fecha', function () {
+    crearEncuesta(['alumno_nombre' => 'Nota Cuatro', 'satisfaccion_general' => 4, 'fecha_cumplimentacion' => '2026-01-10']);
+    crearEncuesta(['alumno_nombre' => 'Nota Uno', 'satisfaccion_general' => 1, 'fecha_cumplimentacion' => '2026-05-10']);
+    crearEncuesta(['alumno_nombre' => 'Nota Tres', 'satisfaccion_general' => 3, 'fecha_cumplimentacion' => '2026-03-10']);
+
+    // Por defecto: satisfacción de mayor a menor; un clic en la cabecera la invierte
+    Livewire::test(EncuestasCalidadIndex::class)
+        ->assertSeeInOrder(['Nota Cuatro', 'Nota Tres', 'Nota Uno'])
+        ->call('ordenarPorColumna', 'satisfaccion')
+        ->assertSet('orden', 'asc')
+        ->assertSeeInOrder(['Nota Uno', 'Nota Tres', 'Nota Cuatro'])
+        // Fecha: primero la más reciente; otro clic, la más antigua
+        ->call('ordenarPorColumna', 'fecha')
+        ->assertSet('ordenarPor', 'fecha')
+        ->assertSeeInOrder(['Nota Uno', 'Nota Tres', 'Nota Cuatro'])
+        ->call('ordenarPorColumna', 'fecha')
+        ->assertSeeInOrder(['Nota Cuatro', 'Nota Tres', 'Nota Uno'])
+        // Alumno A→Z
+        ->call('ordenarPorColumna', 'alumno')
+        ->assertSeeInOrder(['Nota Cuatro', 'Nota Tres', 'Nota Uno']);
+});

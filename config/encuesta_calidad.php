@@ -171,4 +171,121 @@ return [
         'forms_id', 'alumno_nombre', 'alumno_email', 'numero_accion', 'numero_grupo',
         'cif_empresa', 'denominacion_accion', 'modalidad', 'fecha', 'observaciones',
     ],
+
+    // Hora del snapshot diario del índice de matrículas Moodle (routes/console.php)
+    'snapshot_moodle_hora' => env('ENCUESTA_CALIDAD_SNAPSHOT_HORA', '03:30'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Tercera vía: plugin de Moodle mod_calidadfundae (cuestionario íntegro)
+    |--------------------------------------------------------------------------
+    | El comando `encuestas-calidad:sincronizar-moodle` lee las respuestas por el
+    | webservice `mod_calidadfundae_get_responses` (incremental por timemodified)
+    | y las guarda con `origen = 'moodle_plugin'`.
+    | `plugin_sync_enabled`: OFF fuera de producción, igual que la lectura IMAP.
+    */
+    'plugin_sync_enabled' => env('ENCUESTA_CALIDAD_PLUGIN_SYNC', env('APP_ENV') === 'production'),
+    'plugin_page_size'    => (int) env('ENCUESTA_CALIDAD_PLUGIN_PAGE', 200),
+    // Solape al reanudar: se relee este margen por si una respuesta se guardó en
+    // el mismo segundo que el corte de la corrida anterior (idempotente).
+    'plugin_solape_segundos' => 60,
+
+    // Orígenes que traen el cuestionario FUNDAE íntegro (scopeCuestionarioCompleto)
+    'origenes_cuestionario_completo' => ['moodle_plugin'],
+
+    // Columna del plugin (escala 1-4) → columna del Panel. Las que el Form ya
+    // preguntaba van a su item_NN de siempre para que las medias sigan siendo
+    // comparables; las nuevas a item_20..22. v4_*f = Formadores, v4_*t = Tutores.
+    'plugin_mapa' => [
+        'v1_1'  => 'item_01', 'v1_2'  => 'item_02',
+        'v2_1'  => 'item_03', 'v2_2'  => 'item_20',
+        'v3_1'  => 'item_04', 'v3_2'  => 'item_05',
+        'v4_1f' => 'item_06', 'v4_2f' => 'item_07',
+        'v4_1t' => 'item_21', 'v4_2t' => 'item_22',
+        'v5_1'  => 'item_08', 'v5_2'  => 'item_09',
+        'v6_1'  => 'item_10', 'v6_2'  => 'item_11',
+        'v7_1'  => 'item_12', 'v7_2'  => 'item_13',
+        'v9_1'  => 'item_14', 'v9_2'  => 'item_15', 'v9_3' => 'item_16', 'v9_4' => 'item_17', 'v9_5' => 'item_18',
+        'v10'   => 'satisfaccion_general',
+    ],
+    // Dicotómicos del plugin (1 = Sí, 2 = No) → columnas sino_* (nunca se promedian)
+    'plugin_mapa_sino' => [
+        's8_1'  => 'sino_pruebas_evaluacion',
+        's8_2'  => 'sino_acreditacion',
+        's10_1' => 'sino_recomendaria',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cuestionario íntegro: catálogo de preguntas para la pestaña "Cuestionario completo"
+    |--------------------------------------------------------------------------
+    | Orden y textos del cuestionario oficial (mismos que el plugin). `tipo`:
+    | 'escala' (1-4, se promedia) | 'sino' (porcentaje Sí/No, NUNCA se promedia).
+    */
+    'cuestionario_completo' => [
+        ['bloque' => '1. Organización del curso', 'preguntas' => [
+            ['col' => 'item_01', 'codigo' => '1.1', 'tipo' => 'escala', 'texto' => 'El curso ha estado bien organizado'],
+            ['col' => 'item_02', 'codigo' => '1.2', 'tipo' => 'escala', 'texto' => 'El número de alumnos del grupo ha sido adecuado'],
+        ]],
+        ['bloque' => '2. Contenidos y metodología', 'preguntas' => [
+            ['col' => 'item_03', 'codigo' => '2.1', 'tipo' => 'escala', 'texto' => 'Los contenidos han respondido a mis necesidades formativas'],
+            ['col' => 'item_20', 'codigo' => '2.2', 'tipo' => 'escala', 'texto' => 'Combinación adecuada de teoría y aplicación práctica'],
+        ]],
+        ['bloque' => '3. Duración y horario', 'preguntas' => [
+            ['col' => 'item_04', 'codigo' => '3.1', 'tipo' => 'escala', 'texto' => 'La duración ha sido suficiente'],
+            ['col' => 'item_05', 'codigo' => '3.2', 'tipo' => 'escala', 'texto' => 'El horario ha favorecido la asistencia'],
+        ]],
+        ['bloque' => '4. Formadores', 'preguntas' => [
+            ['col' => 'item_06', 'codigo' => '4.1', 'tipo' => 'escala', 'texto' => 'La forma de impartir ha facilitado el aprendizaje (formadores)'],
+            ['col' => 'item_07', 'codigo' => '4.2', 'tipo' => 'escala', 'texto' => 'Conocen los temas en profundidad (formadores)'],
+        ]],
+        ['bloque' => '4. Tutores', 'preguntas' => [
+            ['col' => 'item_21', 'codigo' => '4.1', 'tipo' => 'escala', 'texto' => 'La forma de tutorizar ha facilitado el aprendizaje (tutores)'],
+            ['col' => 'item_22', 'codigo' => '4.2', 'tipo' => 'escala', 'texto' => 'Conocen los temas en profundidad (tutores)'],
+        ]],
+        ['bloque' => '5. Medios didácticos', 'preguntas' => [
+            ['col' => 'item_08', 'codigo' => '5.1', 'tipo' => 'escala', 'texto' => 'Documentación y materiales comprensibles y adecuados'],
+            ['col' => 'item_09', 'codigo' => '5.2', 'tipo' => 'escala', 'texto' => 'Los medios didácticos están actualizados'],
+        ]],
+        ['bloque' => '6. Instalaciones y medios técnicos', 'preguntas' => [
+            ['col' => 'item_10', 'codigo' => '6.1', 'tipo' => 'escala', 'texto' => 'Aula / instalaciones apropiadas'],
+            ['col' => 'item_11', 'codigo' => '6.2', 'tipo' => 'escala', 'texto' => 'Medios técnicos adecuados'],
+        ]],
+        ['bloque' => '7. Teleformación', 'preguntas' => [
+            ['col' => 'item_12', 'codigo' => '7.1', 'tipo' => 'escala', 'texto' => 'Guías tutoriales y materiales han permitido realizar el curso fácilmente'],
+            ['col' => 'item_13', 'codigo' => '7.2', 'tipo' => 'escala', 'texto' => 'Medios de apoyo suficientes (tutorías, correo, foros…)'],
+        ]],
+        ['bloque' => '8. Evaluación del aprendizaje', 'preguntas' => [
+            ['col' => 'sino_pruebas_evaluacion', 'codigo' => '8.1', 'tipo' => 'sino', 'texto' => 'Ha dispuesto de pruebas de evaluación y autoevaluación'],
+            ['col' => 'sino_acreditacion',       'codigo' => '8.2', 'tipo' => 'sino', 'texto' => 'El curso permite obtener una acreditación'],
+        ]],
+        ['bloque' => '9. Valoración general', 'preguntas' => [
+            ['col' => 'item_14', 'codigo' => '9.1', 'tipo' => 'escala', 'texto' => 'Puede contribuir a mi incorporación al mercado de trabajo'],
+            ['col' => 'item_15', 'codigo' => '9.2', 'tipo' => 'escala', 'texto' => 'Nuevas habilidades aplicables al puesto'],
+            ['col' => 'item_16', 'codigo' => '9.3', 'tipo' => 'escala', 'texto' => 'Mejora mis posibilidades de cambiar de puesto'],
+            ['col' => 'item_17', 'codigo' => '9.4', 'tipo' => 'escala', 'texto' => 'He ampliado conocimientos para progresar'],
+            ['col' => 'item_18', 'codigo' => '9.5', 'tipo' => 'escala', 'texto' => 'Ha favorecido mi desarrollo personal'],
+        ]],
+        ['bloque' => '10. Satisfacción general', 'preguntas' => [
+            ['col' => 'satisfaccion_general', 'codigo' => '10',   'tipo' => 'escala', 'texto' => 'Grado de satisfacción general con el curso'],
+            ['col' => 'sino_recomendaria',    'codigo' => '10.1', 'tipo' => 'sino',   'texto' => '¿Recomendaría este curso?'],
+        ]],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Oportunidades: ofrecer el curso siguiente a quien valoró bien el suyo
+    |--------------------------------------------------------------------------
+    */
+    // Módulo económico FUNDAE de teleformación (€/hora): estima lo que una acción
+    // formativa consumiría del crédito cuando no hay precio en el catálogo web.
+    'modulo_teleformacion_hora' => (float) env('ENCUESTA_CALIDAD_MODULO_HORA', 7),
+    'oportunidad_nota_minima' => (int) env('ENCUESTA_CALIDAD_OPORTUNIDAD_NOTA', 4),
+    'oportunidad_estados' => [
+        'pendiente'     => 'Pendiente',
+        'contactado'    => 'Contactado',
+        'interesado'    => 'Interesado',
+        'no_interesado' => 'No interesado',
+        'matriculado'   => 'Matriculado',
+    ],
 ];

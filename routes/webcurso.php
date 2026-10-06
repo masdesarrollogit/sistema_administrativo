@@ -14,6 +14,7 @@ use App\Livewire\Webcurso\TutoresIndex;
 use App\Livewire\Webcurso\AccionesFormativasIndex;
 use App\Livewire\Webcurso\AlumnosIndex;
 use App\Livewire\Webcurso\EncuestasCalidadIndex;
+use App\Livewire\Webcurso\CursosSiguientesIndex;
 use App\Livewire\Webcurso\ReportesMoodleIndex;
 use App\Livewire\Webcurso\EncomiendaContratosIndex;
 use App\Livewire\Zoho\BooksIndex;
@@ -64,6 +65,8 @@ Route::middleware(['auth', 'role:admin|SuperAdmin'])
 
         // Encuestas de Calidad FUNDAE (satisfacción del alumno)
         Route::get('/encuestas-calidad', EncuestasCalidadIndex::class)->name('encuestas-calidad');
+        // "Si hizo X, ofrecer Y" — alimenta la pestaña Oportunidades
+        Route::get('/cursos-siguientes', CursosSiguientesIndex::class)->name('cursos-siguientes');
 
         // Acciones Formativas FUNDAE
         Route::get('/acciones-formativas', AccionesFormativasIndex::class)->name('acciones-formativas');
