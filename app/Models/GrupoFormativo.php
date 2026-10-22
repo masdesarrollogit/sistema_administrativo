@@ -24,6 +24,7 @@ class GrupoFormativo extends Model
         'tutor_id',
         'empresa_id',
         'gestion_externa',
+        'permite_solapamiento',
         'codigo_grupo_externo',
         'tramo_horario',
         'descripcion',
@@ -44,6 +45,7 @@ class GrupoFormativo extends Model
         'moodle_course_id'=> 'integer',
         'jornada_laboral' => 'integer',
         'gestion_externa' => 'boolean',
+        'permite_solapamiento' => 'boolean',
     ];
 
     // ─── Relaciones ───

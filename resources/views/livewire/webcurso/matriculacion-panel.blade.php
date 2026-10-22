@@ -55,6 +55,21 @@
                     @endif
                 </div>
 
+                {{-- Excepción a la regla de no solapamiento de fechas entre grupos del alumno --}}
+                <div class="mb-4 p-3 rounded-lg border {{ $nuevoPermiteSolapamiento ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200' }}">
+                    <label class="flex items-start gap-2 cursor-pointer">
+                        <input type="checkbox" wire:model.live="nuevoPermiteSolapamiento"
+                               class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                        <span class="text-sm text-gray-800">
+                            <span class="font-medium">Permitir solapamiento de fechas con otros grupos del alumno (excepción)</span>
+                            <span class="block text-xs text-gray-500 mt-0.5">
+                                Los alumnos podrán entrar aunque ya estén en otro grupo con fechas que se solapan.
+                                El límite de 80 alumnos por tutor y tramo se sigue aplicando.
+                            </span>
+                        </span>
+                    </label>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {{-- Accion formativa --}}
                     <div class="relative">
@@ -182,6 +197,12 @@
                                             @endif
                                         @elseif($grupo->codigo_fundae)
                                             <span class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">FUNDAE: {{ $grupo->codigo_fundae }}</span>
+                                        @endif
+                                        @if($grupo->permite_solapamiento)
+                                            <span class="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700"
+                                                  title="Excepción: sus alumnos pueden estar en otro grupo con fechas solapadas">
+                                                Solapamiento permitido
+                                            </span>
                                         @endif
                                     </div>
                                     <div class="text-sm text-gray-600 mt-1">
@@ -376,6 +397,13 @@
                                         <input type="text" wire:model="editGrupoDescripcion" class="w-full px-2 py-1.5 border border-gray-300 rounded text-sm" placeholder="Opcional">
                                     </div>
                                 </div>
+                                <label class="flex items-start gap-2 mt-3 cursor-pointer">
+                                    <input type="checkbox" wire:model="editGrupoPermiteSolapamiento"
+                                           class="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500">
+                                    <span class="text-sm text-gray-800">
+                                        Permitir solapamiento de fechas con otros grupos del alumno (excepción)
+                                    </span>
+                                </label>
                                 <div class="flex gap-2 mt-3">
                                     <button wire:click="actualizarGrupo" class="px-3 py-1.5 bg-amber-600 text-white rounded text-sm hover:bg-amber-700">Guardar</button>
                                     <button wire:click="cerrarEditarGrupo" class="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200">Cancelar</button>

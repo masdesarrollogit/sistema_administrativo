@@ -66,6 +66,8 @@ class MatriculacionPanel extends Component
     public bool $nuevoGestionExterna = false;
     /** Acción/grupo FUNDAE que nos indica la empresa externa (ej. 241/3) */
     public string $nuevoCodigoGrupoExterno = '';
+    /** Excepción: los alumnos pueden tener otro grupo con fechas solapadas */
+    public bool $nuevoPermiteSolapamiento = false;
 
     // ─── Añadir alumnos al grupo ───
     public array $alumnosParaAgregar = [];
@@ -78,6 +80,7 @@ class MatriculacionPanel extends Component
     public string $editGrupoFechaFin = '';
     public string $editDias = '';
     public int $editGrupoJornada = 1;
+    public bool $editGrupoPermiteSolapamiento = false;
     public string $editGrupoDescripcion = '';
 
     // ─── Editar alumno ───
@@ -891,6 +894,7 @@ class MatriculacionPanel extends Component
             'tutor_id' => $this->nuevoTutorId,
             'empresa_id' => $empresaId,
             'gestion_externa' => $externo,
+            'permite_solapamiento' => $this->nuevoPermiteSolapamiento,
             'codigo_grupo_externo' => $externo ? trim($this->nuevoCodigoGrupoExterno) : null,
             'tramo_horario' => $this->nuevoTramo,
             'descripcion' => $this->nuevaDescripcion ?: null,
@@ -918,7 +922,7 @@ class MatriculacionPanel extends Component
             'busquedaAccion', 'resultadosAccion', 'nuevaAccionFormativaId',
             'nuevoTutorId', 'nuevoTramo', 'nuevaFechaInicio', 'nuevaFechaFin',
             'nuevasDias', 'nuevaDescripcion', 'nuevaJornadaLaboral',
-            'nuevoCodigoGrupoExterno',
+            'nuevoCodigoGrupoExterno', 'nuevoPermiteSolapamiento',
         ]);
         $this->nuevoTramo = 'tramo_2';
         $this->nuevaJornadaLaboral = 1;
@@ -1549,6 +1553,7 @@ class MatriculacionPanel extends Component
         $this->editDias             = '';
         $this->editGrupoJornada     = $grupo->jornada_laboral;
         $this->editGrupoDescripcion = $grupo->descripcion ?? '';
+        $this->editGrupoPermiteSolapamiento = $grupo->permite_solapamiento;
         $this->resetValidation();
     }
 
@@ -1577,6 +1582,7 @@ class MatriculacionPanel extends Component
                 'fecha_fin'      => $this->editGrupoFechaFin,
                 'jornada_laboral'=> $this->editGrupoJornada,
                 'descripcion'    => $this->editGrupoDescripcion ?: null,
+                'permite_solapamiento' => $this->editGrupoPermiteSolapamiento,
             ]);
 
         $this->editandoGrupoId = null;

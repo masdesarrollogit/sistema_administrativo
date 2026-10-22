@@ -127,11 +127,21 @@ class Alumno extends Model
      *
      * Regla: un alumno no puede estar en dos grupos simultáneos (mismo período de tiempo).
      * Puede estar en grupos consecutivos aunque sea la misma acción formativa.
+     *
+     * Excepción: los grupos con `permite_solapamiento = true` no cuentan. Si el grupo
+     * destino ($excluirGrupoId) la tiene, el alumno entra aunque tenga otro grupo
+     * solapado; y un grupo excepcional tampoco bloquea altas en otros grupos.
+     * El límite de 80 alumnos por tutor y tramo se valida aparte y sigue aplicándose.
      */
     public function tieneGrupoActivoEnPeriodo(?string $fechaInicio = null, ?string $fechaFin = null, ?int $excluirGrupoId = null): bool
     {
+        if ($excluirGrupoId && GrupoFormativo::whereKey($excluirGrupoId)->value('permite_solapamiento')) {
+            return false;
+        }
+
         $query = $this->gruposFormativos()
-            ->whereIn('estado', ['abierto', 'comunicado', 'en_curso']);
+            ->whereIn('estado', ['abierto', 'comunicado', 'en_curso'])
+            ->where('grupos_formativos.permite_solapamiento', false);
 
         if ($excluirGrupoId) {
             $query->where('grupos_formativos.id', '!=', $excluirGrupoId);
